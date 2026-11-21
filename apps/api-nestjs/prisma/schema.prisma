@@ -1,0 +1,194 @@
+// Prisma Schema matching docs/mvp-design/02-db-design.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+enum StockLedgerReason {
+  SALE
+  RESTOCK
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  REFUND
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+  CARD
+  SPLIT
+}
+
+enum SaleStatus {
+  COMPLETED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+model Store {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(100)
+  code        String   @unique @db.VarChar(10)
+  address     String?  @db.Text
+  taxRateBps  Int      @default(1100) @map("tax_rate_bps")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  userStores      UserStore[]
+  shifts          Shift[]
+  sales           Sale[]
+  storeInventory  StoreInventory[]
+  stockLedgers    StockLedger[]
+
+  @@map("stores")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(100)
+  email        String   @unique @db.VarChar(150)
+  passwordHash String   @map("password_hash") @db.Text
+  pinHash      String?  @map("pin_hash") @db.Text
+  role         Role
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  userStores   UserStore[]
+  shifts       Shift[]
+  sales        Sale[]
+  stockLedgers StockLedger[]
+
+  @@map("users")
+}
+
+model UserStore {
+  userId  String @map("user_id") @db.Uuid
+  storeId String @map("store_id") @db.Uuid
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, storeId])
+  @@map("user_stores")
+}
+
+model Product {
+  id        String   @id @default(uuid()) @db.Uuid
+  sku       String   @unique @db.VarChar(50)
+  barcode   String?  @db.VarChar(64)
+  name      String   @db.VarChar(150)
+  basePrice BigInt   @map("base_price")
+  costPrice BigInt   @default(0) @map("cost_price")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  storeInventory StoreInventory[]
+  saleItems      SaleItem[]
+  stockLedgers   StockLedger[]
+
+  @@index([barcode])
+  @@map("products")
+}
+
+model StoreInventory {
+  storeId       String   @map("store_id") @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  priceOverride BigInt?  @map("price_override")
+  stockOnHand   Int      @default(0) @map("stock_on_hand")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, productId])
+  @@map("store_inventory")
+}
+
+model StockLedger {
+  id          String            @id @default(uuid()) @db.Uuid
+  storeId     String            @map("store_id") @db.Uuid
+  productId   String            @map("product_id") @db.Uuid
+  deltaQty    Int               @map("delta_qty")
+  reason      StockLedgerReason
+  referenceId String?           @map("reference_id") @db.VarChar(100)
+  note        String?           @db.Text
+  createdBy   String            @map("created_by") @db.Uuid
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  store   Store   @relation(fields: [storeId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  creator User    @relation(fields: [createdBy], references: [id])
+
+  @@index([storeId])
+  @@index([productId])
+  @@map("stock_ledger")
+}
+
+model Shift {
+  id           String    @id @db.Uuid
+  storeId      String    @map("store_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  openedAt     DateTime  @map("opened_at") @db.Timestamptz
+  closedAt     DateTime? @map("closed_at") @db.Timestamptz
+  openingCash  BigInt    @map("opening_cash")
+  expectedCash BigInt?   @map("expected_cash")
+  actualCash   BigInt?   @map("actual_cash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  store Store  @relation(fields: [storeId], references: [id])
+  user  User   @relation(fields: [userId], references: [id])
+  sales Sale[]
+
+  @@map("shifts")
+}
+
+model Sale {
+  id            String        @id @db.Uuid
+  storeId       String        @map("store_id") @db.Uuid
+  shiftId       String        @map("shift_id") @db.Uuid
+  cashierId     String        @map("cashier_id") @db.Uuid
+  receiptNo     String        @unique @map("receipt_no") @db.VarChar(40)
+  subtotal      BigInt
+  taxTotal      BigInt        @map("tax_total")
+  discountTotal BigInt        @default(0) @map("discount_total")
+  grandTotal    BigInt        @map("grand_total")
+  paymentMethod PaymentMethod @map("payment_method")
+  status        SaleStatus
+  createdAt     DateTime      @map("created_at") @db.Timestamptz
+
+  store     Store      @relation(fields: [storeId], references: [id])
+  shift     Shift      @relation(fields: [shiftId], references: [id])
+  cashier   User       @relation(fields: [cashierId], references: [id])
+  saleItems SaleItem[]
+
+  @@index([storeId])
+  @@map("sales")
+}
+
+model SaleItem {
+  id                  String  @id @default(uuid()) @db.Uuid
+  saleId              String  @map("sale_id") @db.Uuid
+  productId           String  @map("product_id") @db.Uuid
+  productNameSnapshot String  @map("product_name_snapshot") @db.VarChar(150)
+  unitPrice           BigInt  @map("unit_price")
+  qty                 Int
+  refundedQty         Int     @default(0) @map("refunded_qty")
+
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("sale_items")
+}

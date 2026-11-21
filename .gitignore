@@ -1,0 +1,30 @@
+# Dart/Flutter
+.dart_tool/
+build/
+*.dart_tool/
+.packages
+packages/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Generated files
+*.g.dart
+*.freezed.dart
+*.gr.dart
+
+# Test coverage
+coverage/
+
+# Environment
+*.env
+.env.local

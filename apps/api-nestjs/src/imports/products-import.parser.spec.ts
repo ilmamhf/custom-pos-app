@@ -17,7 +17,7 @@ describe('ProductsImportParser', () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
-  function writeCsv(name: string, content: string): string {
+  function writeCsv(name: string, content: string | Buffer): string {
     const path = join(directory, name);
     writeFileSync(path, content, 'utf8');
     return path;
@@ -54,6 +54,20 @@ describe('ProductsImportParser', () => {
         rowNumber: 3,
       },
     ]);
+  });
+
+  it('rejects unsupported column names', async () => {
+    const path = writeCsv(
+      'unsupported-header.csv',
+      [
+        'sku,name,basePrice,stock_onhands',
+        'A-001,Sample Product,18000,10',
+      ].join('\n'),
+    );
+
+    await expect(new ProductsImportParser().parse(path)).rejects.toThrow(
+      'unsupported column(s): stockonhands',
+    );
   });
 
   it('fills optional product fields from a later row for the same SKU', async () => {
@@ -178,7 +192,7 @@ describe('ProductsImportParser', () => {
   it('reports rows with the wrong number of columns', async () => {
     const path = writeCsv(
       'wrong-column-count.csv',
-      ['sku,name,basePrice', 'A-001,Sample Product'].join('\n'),
+      ['name,sku,basePrice', 'Sample Product,A-001'].join('\n'),
     );
 
     const result = await new ProductsImportParser().parse(path);
@@ -186,11 +200,64 @@ describe('ProductsImportParser', () => {
     expect(result.errors).toEqual([
       expect.objectContaining({
         rowNumber: 2,
+        sku: 'A-001',
         field: 'columns',
         message: 'expected 3 columns but received 2',
       }),
     ]);
     expect(result.groups).toEqual([]);
+  });
+
+  it('rejects NUL characters in text fields', async () => {
+    const path = writeCsv(
+      'nul-character.csv',
+      ['sku,name,basePrice', 'A-001,Invalid\u0000Name,18000'].join('\n'),
+    );
+
+    const result = await new ProductsImportParser().parse(path);
+
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        rowNumber: 2,
+        field: 'name',
+        message: 'name must not contain NUL characters',
+      }),
+    ]);
+    expect(result.groups).toEqual([]);
+  });
+
+  it('sanitizes SKUs reported with NUL characters', async () => {
+    const path = writeCsv(
+      'nul-sku.csv',
+      ['sku,name,basePrice', 'A-\u0000001,Sample Product,18000'].join('\n'),
+    );
+
+    const result = await new ProductsImportParser().parse(path);
+
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        rowNumber: 2,
+        sku: 'A-001',
+        field: 'sku',
+        message: 'sku must not contain NUL characters',
+      }),
+    ]);
+    expect(result.groups).toEqual([]);
+  });
+
+  it('rejects invalid UTF-8 input', async () => {
+    const path = writeCsv(
+      'invalid-utf8.csv',
+      Buffer.concat([
+        Buffer.from('sku,name,basePrice\nA-001,Invalid', 'utf8'),
+        Buffer.from([0xff]),
+        Buffer.from(' Name,18000\n', 'utf8'),
+      ]),
+    );
+
+    await expect(new ProductsImportParser().parse(path)).rejects.toThrow(
+      'Could not parse CSV file',
+    );
   });
 
   it('rejects files without all required columns', async () => {

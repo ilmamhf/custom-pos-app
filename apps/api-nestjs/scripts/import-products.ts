@@ -1,6 +1,6 @@
 import 'dotenv/config';
-import { existsSync, writeFileSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, realpathSync, writeFileSync } from 'fs';
+import { relative, resolve } from 'path';
 import { stringify } from 'csv-stringify/sync';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ProductsImportParser } from '../src/imports/products-import.parser';
@@ -34,12 +34,16 @@ Options:
   --dry-run              Validate and show planned changes without writing
   --apply                Validate and write the import
   --batch-size <number>  Products per transaction (default: 100)
-  --errors-file <path>   Write rejected rows to a CSV file
+  --errors-file <path>   Write validation errors to a CSV file
   --help                 Show this help
 
 Environment variables:
   IMPORT_BATCH_SIZE      Same as --batch-size
   IMPORT_ERRORS_FILE     Same as --errors-file
+
+Safety:
+  Apply mode replaces stockOnHand with absolute CSV values.
+  Run imports while stock cannot change. A restart replays every batch.
 `);
 }
 
@@ -134,11 +138,12 @@ function safeSpreadsheetCell(
 ): string | number {
   if (value === undefined) return '';
   if (typeof value === 'number') return value;
-  if (/^[=+\-@]/.test(value)) return `'${value}`;
-  return value;
+  const sanitized = value.replace(/\0/g, '');
+  if (/^[=+\-@]/.test(sanitized)) return `'${sanitized}`;
+  return sanitized;
 }
 
-function writeErrorsFile(
+function writeValidationErrorsFile(
   filePath: string,
   errors: ProductImportRowError[],
 ): void {
@@ -205,8 +210,29 @@ async function main(): Promise<void> {
     throw new Error(`CSV file does not exist: ${filePath}`);
   }
 
+  const errorsPath = options.errorsFile
+    ? resolve(options.errorsFile)
+    : undefined;
+  if (errorsPath) {
+    const sourcePath = realpathSync(filePath);
+    const targetPath = existsSync(errorsPath)
+      ? realpathSync(errorsPath)
+      : errorsPath;
+    if (relative(sourcePath, targetPath) === '') {
+      throw new Error(
+        'The validation errors file must be different from the CSV input file.',
+      );
+    }
+    writeValidationErrorsFile(errorsPath, []);
+  }
+
   const parser = new ProductsImportParser();
   const parsed = await parser.parse(filePath);
+  if (options.mode === 'import') {
+    console.warn(
+      'Apply mode replaces stockOnHand with absolute CSV values. Run it during a maintenance window when stock cannot change.',
+    );
+  }
   const prisma = new PrismaService();
 
   try {
@@ -232,10 +258,9 @@ async function main(): Promise<void> {
         console.error(`... ${result.errors.length - 100} more error(s)`);
       }
 
-      if (options.errorsFile) {
-        const errorsPath = resolve(options.errorsFile);
-        writeErrorsFile(errorsPath, result.errors);
-        console.error(`Rejected rows written to: ${errorsPath}`);
+      if (errorsPath) {
+        writeValidationErrorsFile(errorsPath, result.errors);
+        console.error(`Validation errors written to: ${errorsPath}`);
       }
       console.error('No database data was written.');
       process.exitCode = 1;

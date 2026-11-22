@@ -1,4 +1,6 @@
 import { createReadStream } from 'fs';
+import { Transform } from 'stream';
+import { TextDecoder } from 'util';
 import { parse } from 'csv-parse';
 import {
   ProductImportGroup,
@@ -15,6 +17,17 @@ const PRODUCT_FIELD_MAX_LENGTHS = {
 } as const;
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
+const SUPPORTED_HEADERS = new Set([
+  'sku',
+  'barcode',
+  'name',
+  'baseprice',
+  'costprice',
+  'storecode',
+  'stockonhand',
+  'priceoverride',
+  'isactive',
+]);
 
 const HEADER_ALIASES = new Map<string, string>([
   ['sku', 'sku'],
@@ -67,8 +80,7 @@ export function normalizeImportHeader(value: string): string {
 
 export function canonicalizeImportHeaders(headers: string[]): string[] {
   const seen = new Set<string>();
-
-  return headers.map((header) => {
+  const canonicalHeaders = headers.map((header) => {
     const normalized = normalizeImportHeader(header);
     const canonical = HEADER_ALIASES.get(normalized) ?? normalized;
 
@@ -84,10 +96,46 @@ export function canonicalizeImportHeaders(headers: string[]): string[] {
     seen.add(canonical);
     return canonical;
   });
+
+  const unsupported = canonicalHeaders.filter(
+    (header) => !SUPPORTED_HEADERS.has(header),
+  );
+  if (unsupported.length > 0) {
+    throw new ProductImportFileError(
+      `CSV contains unsupported column(s): ${unsupported.join(', ')}`,
+    );
+  }
+
+  return canonicalHeaders;
 }
 
 function characterLength(value: string): number {
   return [...value].length;
+}
+
+function containsNulCharacter(value: string): boolean {
+  return value.includes('\0');
+}
+
+function createUtf8DecoderStream(): Transform {
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      try {
+        callback(null, decoder.decode(chunk, { stream: true }));
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error(String(error)));
+      }
+    },
+    flush(callback) {
+      try {
+        callback(null, decoder.decode());
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error(String(error)));
+      }
+    },
+  });
 }
 
 function parseInteger(
@@ -195,6 +243,21 @@ interface ParsedRowFields {
   store?: ProductImportStoreValues;
 }
 
+function sanitizeSku(sku: string): string | undefined {
+  const sanitized = sku.replace(/\0/g, '').trim();
+  return sanitized || undefined;
+}
+
+function attachSku(
+  error: ProductImportRowError,
+  sku: string,
+): ProductImportRowError {
+  const sanitizedSku = sanitizeSku(sku);
+  return error.sku === undefined && sanitizedSku
+    ? { ...error, sku: sanitizedSku }
+    : error;
+}
+
 function addConsistencyError(
   group: ProductImportGroup,
   field: string,
@@ -296,7 +359,9 @@ export class ProductsImportParser {
     let headers: string[] = [];
     let recordNumber = 0;
 
-    const parser = createReadStream(filePath).pipe(
+    const sourceStream = createReadStream(filePath);
+    const decoderStream = createUtf8DecoderStream();
+    const parser = sourceStream.pipe(decoderStream).pipe(
       parse({
         bom: true,
         columns: (rawHeaders: string[]) => {
@@ -319,6 +384,15 @@ export class ProductsImportParser {
         trim: true,
       }),
     );
+    parser.on('error', () => {
+      sourceStream.destroy();
+      decoderStream.destroy();
+    });
+    sourceStream.on('error', (error) => parser.destroy(error));
+    decoderStream.on('error', (error) => {
+      sourceStream.destroy();
+      parser.destroy(error);
+    });
 
     const groupsBySku = new Map<string, ProductImportGroup>();
     const errors: ProductImportRowError[] = [];
@@ -332,8 +406,14 @@ export class ProductsImportParser {
 
         const malformedRecord = item.info?.error?.record;
         if (malformedRecord && malformedRecord.length !== headers.length) {
+          const skuIndex = headers.indexOf('sku');
+          const malformedSkuValue =
+            skuIndex >= 0 && typeof malformedRecord[skuIndex] === 'string'
+              ? malformedRecord[skuIndex]
+              : undefined;
           errors.push({
             rowNumber,
+            sku: malformedSkuValue ? sanitizeSku(malformedSkuValue) : undefined,
             field: 'columns',
             message: `expected ${headers.length} columns but received ${malformedRecord.length}`,
           });
@@ -350,6 +430,13 @@ export class ProductsImportParser {
             field: 'sku',
             message: 'sku is required',
           });
+        } else if (containsNulCharacter(sku)) {
+          rowErrors.push({
+            rowNumber,
+            sku: sanitizeSku(sku),
+            field: 'sku',
+            message: 'sku must not contain NUL characters',
+          });
         } else if (characterLength(sku) > PRODUCT_FIELD_MAX_LENGTHS.sku) {
           rowErrors.push({
             rowNumber,
@@ -361,25 +448,39 @@ export class ProductsImportParser {
         if (!name) {
           rowErrors.push({
             rowNumber,
-            sku: sku || undefined,
+            sku: sanitizeSku(sku),
             field: 'name',
             message: 'name is required',
+          });
+        } else if (containsNulCharacter(name)) {
+          rowErrors.push({
+            rowNumber,
+            sku: sanitizeSku(sku),
+            field: 'name',
+            message: 'name must not contain NUL characters',
           });
         } else if (characterLength(name) > PRODUCT_FIELD_MAX_LENGTHS.name) {
           rowErrors.push({
             rowNumber,
-            sku: sku || undefined,
+            sku: sanitizeSku(sku),
             field: 'name',
             message: `name must be at most ${PRODUCT_FIELD_MAX_LENGTHS.name} characters`,
           });
         }
-        if (
+        if (barcode && containsNulCharacter(barcode)) {
+          rowErrors.push({
+            rowNumber,
+            sku: sanitizeSku(sku),
+            field: 'barcode',
+            message: 'barcode must not contain NUL characters',
+          });
+        } else if (
           barcode &&
           characterLength(barcode) > PRODUCT_FIELD_MAX_LENGTHS.barcode
         ) {
           rowErrors.push({
             rowNumber,
-            sku: sku || undefined,
+            sku: sanitizeSku(sku),
             field: 'barcode',
             message: `barcode must be at most ${PRODUCT_FIELD_MAX_LENGTHS.barcode} characters`,
           });
@@ -392,7 +493,8 @@ export class ProductsImportParser {
           false,
           true,
         );
-        if (basePriceResult.error) rowErrors.push(basePriceResult.error);
+        if (basePriceResult.error)
+          rowErrors.push(attachSku(basePriceResult.error, sku));
 
         const costPriceResult = parseInteger(
           record.costprice,
@@ -400,14 +502,16 @@ export class ProductsImportParser {
           rowNumber,
           false,
         );
-        if (costPriceResult.error) rowErrors.push(costPriceResult.error);
+        if (costPriceResult.error)
+          rowErrors.push(attachSku(costPriceResult.error, sku));
 
         const activeResult = parseBoolean(
           record.isactive,
           'isActive',
           rowNumber,
         );
-        if (activeResult.error) rowErrors.push(activeResult.error);
+        if (activeResult.error)
+          rowErrors.push(attachSku(activeResult.error, sku));
 
         const storeCode = (record.storecode ?? '').trim().toUpperCase();
         const stockResult = parseInteger(
@@ -416,14 +520,15 @@ export class ProductsImportParser {
           rowNumber,
           true,
         );
-        if (stockResult.error) rowErrors.push(stockResult.error);
+        if (stockResult.error)
+          rowErrors.push(attachSku(stockResult.error, sku));
         if (
           stockResult.value !== undefined &&
           (stockResult.value < INT32_MIN || stockResult.value > INT32_MAX)
         ) {
           rowErrors.push({
             rowNumber,
-            sku: sku || undefined,
+            sku: sanitizeSku(sku),
             field: 'stockOnHand',
             message: `stockOnHand must be between ${INT32_MIN} and ${INT32_MAX}`,
           });
@@ -434,12 +539,12 @@ export class ProductsImportParser {
           rowNumber,
         );
         if (priceOverrideResult.error)
-          rowErrors.push(priceOverrideResult.error);
+          rowErrors.push(attachSku(priceOverrideResult.error, sku));
 
         if (!storeCode && (record.stockonhand || record.priceoverride)) {
           rowErrors.push({
             rowNumber,
-            sku: sku || undefined,
+            sku: sanitizeSku(sku),
             field: 'storeCode',
             message:
               'storeCode is required when stockOnHand or priceOverride is provided',

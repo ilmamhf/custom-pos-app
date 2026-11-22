@@ -95,7 +95,7 @@ export class ProductsImportService {
     options: ProductImportOptions,
   ): Promise<ProductImportResult> {
     const stores = await this.prisma.store.findMany({
-      select: { id: true, code: true, name: true },
+      select: { id: true, code: true },
       orderBy: { code: 'asc' },
     });
     const storesByCode = new Map(stores.map((store) => [store.code, store]));
@@ -221,7 +221,6 @@ export class ProductsImportService {
       const inventory = await this.prisma.storeInventory.findMany({
         where: { product: { sku: { in: skuChunk } } },
         select: {
-          stockOnHand: true,
           product: { select: { sku: true } },
           store: { select: { code: true } },
         },

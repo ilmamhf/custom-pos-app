@@ -213,6 +213,23 @@ class SalesDao {
     return rows.first['cash_total'] as int;
   }
 
+  /// Number of sales already recorded for [storeId] on the local calendar day
+  /// containing [at]. Used to build the daily receipt sequence.
+  Future<int> countSalesForDay(String storeId, DateTime at) async {
+    final local = at.toLocal();
+    final start = DateTime(local.year, local.month, local.day);
+    final end = start.add(const Duration(days: 1));
+    final rows = _db.select('''
+      SELECT COUNT(*) AS count FROM local_sales
+      WHERE store_id = ? AND created_at >= ? AND created_at < ?
+    ''', [
+      storeId,
+      start.toUtc().millisecondsSinceEpoch,
+      end.toUtc().millisecondsSinceEpoch,
+    ]);
+    return rows.first['count'] as int;
+  }
+
   /// Gets all sales for a store.
   Future<List<LocalSale>> getSalesForStore(String storeId, {int limit = 100}) async {
     final rows = _db.select('''

@@ -1,12 +1,12 @@
-/// GoRouter configuration with auth and shift guards.
+﻿/// GoRouter configuration with auth and shift guards.
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/store_selector.dart';
 import '../../features/auth/auth_provider.dart';
+import '../../features/pos/pos_screen.dart';
 import '../../features/shift/shift_screen.dart';
 import '../../features/shift/shift_provider.dart';
 
@@ -77,7 +77,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/pos',
-        builder: (context, state) => const _PosPlaceholderScreen(),
+        builder: (context, state) => const PosScreen(),
       ),
       GoRoute(
         path: '/refund/:saleId',
@@ -86,74 +86,6 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
-
-/// Placeholder POS screen (Phase 4).
-class _PosPlaceholderScreen extends ConsumerWidget {
-  const _PosPlaceholderScreen();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authProvider);
-    final shiftState = ref.watch(shiftProvider);
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('POS Checkout'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.store),
-            onPressed: () => context.go('/store-selector'),
-            tooltip: 'Change Store',
-          ),
-          IconButton(
-            icon: const Icon(Icons.lock_clock),
-            onPressed: () => context.go('/shift'),
-            tooltip: 'Shift Info',
-          ),
-        ],
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.point_of_sale,
-                size: 96,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'POS Checkout (Phase 4)',
-                style: theme.textTheme.displayMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Store: ${authState.selectedStore?.name ?? 'None'}\n'
-                'Shift: ${shiftState.id?.substring(0, 8) ?? 'None'}...\n'
-                'Opening Cash: ${shiftState.openingCash ?? 0}',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              FilledButton.icon(
-                onPressed: () => context.go('/shift'),
-                icon: const Icon(Icons.lock_clock),
-                label: const Text('Manage Shift'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// Placeholder Refund screen (Phase 5).
 class _RefundPlaceholderScreen extends ConsumerWidget {

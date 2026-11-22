@@ -21,6 +21,7 @@ Thumbs.db
 *.g.dart
 *.freezed.dart
 *.gr.dart
+*.tsbuildinfo
 
 # Test coverage
 coverage/

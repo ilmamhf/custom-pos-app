@@ -2,6 +2,8 @@
 
 Offline-first Flutter cashier application for a 1 to 3 store retail business.
 
+For the complete database, API, seed account, React Admin, and live POS setup, see the repository-level [`README.md`](../../README.md).
+
 ## Run on web
 
 ```bash

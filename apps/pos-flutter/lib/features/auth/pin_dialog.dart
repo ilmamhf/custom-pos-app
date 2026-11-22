@@ -2,10 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:dio/dio.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/network/dio_client.dart';
+import '../auth/auth_provider.dart';
+import 'pin_service.dart';
 
 /// Shows a PIN verification dialog for manager overrides.
 /// Returns true if PIN is verified, false otherwise.
@@ -13,7 +12,6 @@ Future<bool> showPinDialog(
   BuildContext context, {
   required String title,
   required String message,
-  required Dio dio,
   String? storeId,
 }) async {
   final result = await showDialog<bool>(
@@ -22,7 +20,6 @@ Future<bool> showPinDialog(
     builder: (context) => _PinDialog(
       title: title,
       message: message,
-      dio: dio,
       storeId: storeId,
     ),
   );
@@ -34,13 +31,11 @@ class _PinDialog extends ConsumerStatefulWidget {
   const _PinDialog({
     required this.title,
     required this.message,
-    required this.dio,
     this.storeId,
   });
 
   final String title;
   final String message;
-  final Dio dio;
   final String? storeId;
 
   @override
@@ -67,31 +62,21 @@ class _PinDialogState extends ConsumerState<_PinDialog> {
       _error = null;
     });
 
-    try {
-      final response = await widget.dio.post(
-        '/auth/verify-pin',
-        data: {
-          'storeId': widget.storeId,
-          'pin': _pinController.text,
-        },
-      );
+    final authState = ref.read(authProvider);
+    final result = await ref.read(pinServiceProvider).verify(
+          _pinController.text,
+          storeId: widget.storeId ?? authState.selectedStore?.id,
+        );
 
-      if (response.statusCode == 200 && response.data['authorized'] == true) {
-        if (mounted) {
-          Navigator.of(context).pop(true);
-        }
-      } else {
-        setState(() {
-          _error = 'Invalid PIN';
-          _isLoading = false;
-        });
-      }
-    } on Exception catch (e) {
-      setState(() {
-        _error = 'Verification failed: ${e.toString()}';
-        _isLoading = false;
-      });
+    if (!mounted) return;
+    if (result.authorized) {
+      Navigator.of(context).pop(true);
+      return;
     }
+    setState(() {
+      _error = result.message ?? 'Invalid PIN';
+      _isLoading = false;
+    });
   }
 
   @override
@@ -147,18 +132,7 @@ class _PinDialogState extends ConsumerState<_PinDialog> {
                 maxLength: 6,
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _verifyPin(),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter PIN';
-                  }
-                  if (value.length != 6) {
-                    return 'PIN must be 6 digits';
-                  }
-                  if (!RegExp(r'^\d{6}$').hasMatch(value)) {
-                    return 'PIN must be numeric';
-                  }
-                  return null;
-                },
+                validator: validatePin,
               ),
               const SizedBox(height: 24),
 
@@ -238,15 +212,15 @@ class PinKeypad extends StatefulWidget {
 }
 
 class _PinKeypadState extends State<PinKeypad> {
-  final _pin = StringBuffer();
+  String _pin = '';
 
   void _addDigit(String digit) {
     if (_pin.length < widget.length) {
       setState(() {
-        _pin.write(digit);
+        _pin += digit;
       });
       if (_pin.length == widget.length) {
-        widget.onComplete(_pin.toString());
+        widget.onComplete(_pin);
       }
     }
   }
@@ -254,16 +228,14 @@ class _PinKeypadState extends State<PinKeypad> {
   void _removeDigit() {
     if (_pin.isNotEmpty) {
       setState(() {
-        _pin.writeCharCode(_pin.toString().codeUnitAt(_pin.length - 1));
-        _pin.clear();
-        _pin.write(_pin.toString().substring(0, _pin.length - 1));
+        _pin = _pin.substring(0, _pin.length - 1);
       });
     }
   }
 
   void _clear() {
     setState(() {
-      _pin.clear();
+      _pin = '';
     });
   }
 

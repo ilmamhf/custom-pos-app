@@ -3,8 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/network/dio_client.dart';
+import '../../core/utils/currency.dart';
 import 'auth_provider.dart';
 
 /// Store selector screen after login.
@@ -160,7 +159,7 @@ class _StoreCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'Tax: ${(store.taxRateBps / 100).toStringAsFixed(2)}%',
+                      'Tax: ${formatBpsPercent(store.taxRateBps)}%',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: isSelected
                             ? theme.colorScheme.onPrimaryContainer.withOpacity(0.7)

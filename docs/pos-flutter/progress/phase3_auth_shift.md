@@ -1,93 +1,88 @@
-# Phase 3: Auth, Store Selection & Shift Management — In Progress
+# Phase 3: Auth, Store Selection & Shift Management — Complete
 
-**Date:** 2026-11-21
-**Status:** 🔄 In Progress (Code Complete, Analyzer Issues Remaining)
+**Date:** 2026-11-22
+**Status:** ✅ Complete
 
 ## Summary
-Implemented core authentication, store selection, and shift management features for the Flutter POS app. All major components are coded but there are remaining analyzer issues to resolve.
+Authentication, store selection and shift management are implemented and
+verified. Shifts are now local-first: opening and closing a shift writes to
+SQLite and enqueues a `SYNC_SHIFT` payload in the outbox, so the POS guard works
+without a network connection.
 
-## Completed Components
+## What Changed Since the WIP Commit
 
-### 1. Network Layer (`lib/core/network/`)
-- **`dio_client.dart`** - Dio HTTP client with:
-  - `AuthInterceptor` - JWT token management, auto-refresh on 401
-  - `StoreContextInterceptor` - Adds `X-Store-Id` header for store-scoped requests
-  - `RetryInterceptor` - Exponential backoff retry for network errors/5xx
-  - `ApiException` - Standardized error mapping from Dio errors
+### Wiring and guards
+- `lib/main.dart` now opens `AppDatabase`, builds the Dio client with a single
+  shared `AuthInterceptor`, and overrides `databaseProvider`, `dioProvider`,
+  `authInterceptorProvider` and `secureStorageProvider` in `ProviderScope`.
+- `lib/core/router/app_router.dart` exposes a pure `resolveRedirect(...)`
+  function (unit tested) and a `routerProvider` with a `refreshListenable`, so
+  auth/shift changes refresh guards without rebuilding `GoRouter`.
+- Route order: `/login` → `/store-selector` → `/shift` → `/pos`
+  (`/refund/:saleId` is reachable once a shift is open).
 
-### 2. Auth Feature (`lib/features/auth/`)
-- **`auth_provider.dart`** - Riverpod state management:
-  - `AuthState` - User, stores, selected store, loading/error states
-  - `AuthNotifier` - Login, store selection, logout
-  - Token storage via `flutter_secure_storage`
+### Auth
+- `User.email` is optional (the contract's login response omits it).
+- Login no longer auto-selects the first store, so the store selector is always
+  part of the flow.
+- `AuthState.copyWith` gained `clearError` / `clearStore` flags.
+- Dio errors map to a readable message (including offline).
 
-- **`login_screen.dart`** - Email/password login form with validation
-- **`store_selector.dart`** - Store selection cards after login
-- **`pin_dialog.dart`** - Manager PIN verification dialog with keypad
-- **`index.dart`** - Barrel exports
+### Shift (local-first)
+- `ShiftsDao.openShift` inserts the shift **and** its outbox entry in one
+  transaction; `closeShift` updates the shift and enqueues the closed version.
+- Shift IDs are UUID v4 generated on the client.
+- `ShiftNotifier` reads/writes only the local database; expected cash is
+  `openingCash + SUM(cash sales − refunded cash)` for the shift.
+- `ShiftState.isOpen` requires an actual shift row (`id != null`), fixing the
+  bug where an empty state looked like an open shift.
+- In-flight loads are token-guarded so they cannot overwrite a newer open/close
+  action.
 
-### 3. Shift Feature (`lib/features/shift/`)
-- **`shift_provider.dart`** - Riverpod state management:
-  - `ShiftState` - Current shift data (open/closed, cash tracking)
-  - `ShiftNotifier` - Open/close shift via API, load current shift
-  - Auto-loads open shift on store selection
+### Manager PIN
+- `lib/features/auth/pin_service.dart`: `validatePin`, salted SHA-256
+  `hashPin`, and `PinService` which calls `POST /auth/verify-pin` and falls back
+  to the cached hash only on network errors (4xx is a definitive rejection).
+- `pin_dialog.dart` uses the service and no longer needs a `Dio` parameter.
+- Fixed the keypad backspace implementation (previous `StringBuffer` logic
+  crashed).
 
-- **`shift_screen.dart`** - Shift management UI:
-  - Shows active shift with opening/expected cash
-  - Open shift dialog (enter opening cash)
-  - Close shift dialog (enter actual cash, shows variance)
-  - `_ActiveShiftCard` - Active shift display with variance indicator
-  - `_OpenShiftCard` - Prompt to open new shift
-  - `_ShiftInfoTile` - Reusable info display component
+### Sync payloads
+- `SalesDao.completeSale` now generates sale-item UUIDs once and reuses them in
+  the outbox payload, so local rows and server rows share idempotency keys.
+- Payloads are produced with `jsonEncode` instead of hand-built strings.
 
-- **`index.dart`** - Barrel exports
+## Tests Added (36 new, 108 total)
 
-### 4. Routing (`lib/core/router/`)
-- **`app_router.dart`** - GoRouter with auth/shift guards:
-  - Redirect logic: login → store-selector → shift → pos
-  - Routes: `/login`, `/store-selector`, `/shift`, `/pos`, `/refund/:saleId`
-  - Placeholder screens for Phase 4/5
+| Test file | Coverage |
+|---|---|
+| `test/features/auth/auth_state_test.dart` | User/UserStore parsing, copyWith flags |
+| `test/features/auth/pin_service_test.dart` | PIN format rules, salted hashing |
+| `test/features/shift/shift_state_test.dart` | `isOpen`, `fromShift`, error clearing |
+| `test/features/shift/shift_provider_test.dart` | Local open/close, outbox enqueue, expected cash, variance, non-cash exclusion |
+| `test/core/router/route_guard_test.dart` | Full guard matrix |
+| `test/core/database/checkout_outbox_test.dart` | Atomic checkout, payload item IDs, rollback on failure |
 
-### 5. Main Entry (`lib/main.dart`)
-- ProviderScope with FlutterSecureStorage, Dio, AuthInterceptor
-- MaterialApp.router with GoRouter configuration
-- Placeholder screens for POS checkout and refunds
+`flutter analyze`: no errors or warnings (only Flutter deprecation infos).
+`flutter test`: **108 passed**.
 
-## Remaining Analyzer Issues (To Fix)
-
-| File | Issue | Status |
-|------|-------|--------|
-| `lib/main.dart` | `LoginScreen`, `StoreSelectorScreen`, `ShiftScreen` not found | Need to check exports |
-| `lib/features/shift/shift_screen.dart` | Missing semicolon on line 4, AlertDialog `actions` parameter | Syntax fix needed |
-| `lib/core/database/app_database.dart` | Unused import `sqlite3/open.dart` | Cleanup |
-
-## Files Created/Modified
+## Files
 ```
-lib/core/network/
-├── dio_client.dart              # Dio client with interceptors
-└── index.dart
+lib/core/database/
+├── database_provider.dart        # new: AppDatabase provider
+└── daos/
+    ├── shifts_dao.dart           # transactional open/close + outbox
+    └── sales_dao.dart            # jsonEncode payloads, cash total helper
 
 lib/features/auth/
-├── auth_provider.dart           # Auth state management
-├── login_screen.dart            # Login form
-├── store_selector.dart          # Store selection
-├── pin_dialog.dart              # PIN verification
-└── index.dart                   # Barrel exports
+├── auth_provider.dart            # optional email, error flags
+├── pin_service.dart              # new: online + offline PIN verification
+└── pin_dialog.dart               # uses PinService, fixed keypad
 
-lib/features/shift/
-├── shift_provider.dart          # Shift state management
-├── shift_screen.dart            # Shift management UI
-└── index.dart                   # Barrel exports
-
-lib/core/router/
-├── app_router.dart              # GoRouter with guards
-└── index.dart
-
-lib/main.dart                    # App entry with routing
+lib/features/shift/shift_provider.dart  # local-first shift state
+lib/core/router/app_router.dart         # pure guard + refreshListenable
+lib/main.dart                           # real provider wiring
 ```
 
-## Next Steps
-1. Fix remaining analyzer issues
-2. Run `flutter test` to verify all tests pass
-3. Document progress and commit
-4. Move to **Phase 4: POS Catalog, Cart & Offline Checkout**
+## Next
+Phase 4: POS catalog, cart and offline checkout.

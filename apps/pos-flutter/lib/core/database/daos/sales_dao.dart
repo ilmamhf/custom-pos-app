@@ -1,10 +1,10 @@
 /// DAO for local sales and sale items tables.
 /// Implements atomic checkout transaction.
 
+import 'dart:convert';
 import '../app_database.dart';
 import '../tables/local_sales.dart';
 import '../tables/local_sale_items.dart';
-import '../tables/local_products.dart';
 import '../tables/sync_outbox.dart';
 import '../../utils/uuid_helper.dart';
 
@@ -76,6 +76,8 @@ class SalesDao {
     required List<SaleItemInput> items,
   }) async {
     return _db.transactionResult<SaleCheckoutResult>(() {
+      final createdAt = DateTime.now().toUtc();
+
       // 1. Insert sale
       _db.execute('''
         INSERT INTO local_sales 
@@ -93,12 +95,16 @@ class SalesDao {
         grandTotal,
         paymentMethod.name.toUpperCase(),
         SaleStatus.completed.name.toUpperCase(),
-        DateTime.now().toUtc().millisecondsSinceEpoch,
+        createdAt.millisecondsSinceEpoch,
       ]);
 
-      // 2. Insert sale items and decrement stock
+      // 2. Insert sale items and decrement stock. Item IDs are generated once
+      // here and reused in the outbox payload so local rows and the server
+      // copy share the same idempotency keys.
+      final itemIds = <String>[];
       for (final item in items) {
         final saleItemId = generateUuid();
+        itemIds.add(saleItemId);
         _db.execute('''
           INSERT INTO local_sale_items 
           (id, sale_id, product_id, product_name_snapshot, unit_price, qty, refunded_qty, discount_amount, tax_amount, line_total)
@@ -125,18 +131,19 @@ class SalesDao {
       }
 
       // 3. Enqueue sync outbox entry
-      final payload = _buildSalePushPayload(
+      final payload = buildSalePushPayload(
         saleId: saleId,
         shiftId: shiftId,
         storeId: storeId,
-        cashierId: cashierId,
         receiptNo: receiptNo,
         subtotal: subtotal,
         taxTotal: taxTotal,
         discountTotal: discountTotal,
         grandTotal: grandTotal,
         paymentMethod: paymentMethod,
+        createdAt: createdAt,
         items: items,
+        itemIds: itemIds,
       );
 
       _db.execute('''
@@ -149,51 +156,11 @@ class SalesDao {
         SyncOperationType.createSale.name,
         payload,
         SyncStatus.pending.name.toUpperCase(),
-        DateTime.now().toUtc().millisecondsSinceEpoch,
+        createdAt.millisecondsSinceEpoch,
       ]);
 
       return SaleCheckoutResult(saleId: saleId, receiptNo: receiptNo);
     });
-  }
-
-  /// Builds the JSON payload for sync push.
-  String _buildSalePushPayload({
-    required String saleId,
-    required String shiftId,
-    required String storeId,
-    required String cashierId,
-    required String receiptNo,
-    required int subtotal,
-    required int taxTotal,
-    required int discountTotal,
-    required int grandTotal,
-    required PaymentMethod paymentMethod,
-    required List<SaleItemInput> items,
-  }) {
-    final buffer = StringBuffer();
-    buffer.write('{"storeId":"$storeId",');
-    buffer.write('"shifts":[],');
-    buffer.write('"sales":[{"id":"$saleId",');
-    buffer.write('"shiftId":"$shiftId",');
-    buffer.write('"receiptNo":"$receiptNo",');
-    buffer.write('"subtotal":$subtotal,');
-    buffer.write('"taxTotal":$taxTotal,');
-    buffer.write('"discountTotal":$discountTotal,');
-    buffer.write('"grandTotal":$grandTotal,');
-    buffer.write('"paymentMethod":"${paymentMethod.name.toUpperCase()}",');
-    buffer.write('"createdAt":"${DateTime.now().toUtc().toIso8601String()}",');
-    buffer.write('"items":[');
-    for (int i = 0; i < items.length; i++) {
-      final item = items[i];
-      buffer.write('{"id":"${generateUuid()}",');
-      buffer.write('"productId":"${item.productId}",');
-      buffer.write('"productNameSnapshot":"${item.productNameSnapshot}",');
-      buffer.write('"unitPrice":${item.unitPrice},');
-      buffer.write('"qty":${item.qty}}');
-      if (i < items.length - 1) buffer.write(',');
-    }
-    buffer.write(']}]}');
-    return buffer.toString();
   }
 
   /// Gets a sale by ID with its items.
@@ -227,6 +194,23 @@ class SalesDao {
       ORDER BY created_at DESC
     ''', [shiftId]);
     return rows.map(_rowToSale).toList();
+  }
+
+  /// Cash expected in the drawer for a shift: sum of cash sales minus cash
+  /// already refunded (refunded quantity × unit price).
+  Future<int> getCashTotalForShift(String shiftId) async {
+    final rows = _db.select('''
+      SELECT COALESCE(SUM(
+        s.grand_total - COALESCE((
+          SELECT SUM(i.refunded_qty * i.unit_price)
+          FROM local_sale_items i
+          WHERE i.sale_id = s.id
+        ), 0)
+      ), 0) AS cash_total
+      FROM local_sales s
+      WHERE s.shift_id = ? AND s.payment_method = ?
+    ''', [shiftId, PaymentMethod.cash.name.toUpperCase()]);
+    return rows.first['cash_total'] as int;
   }
 
   /// Gets all sales for a store.
@@ -326,4 +310,49 @@ class SalesDao {
       orElse: () => SaleStatus.completed,
     );
   }
+}
+
+/// Builds a `POST /sync/push` body carrying a single sale and its items.
+String buildSalePushPayload({
+  required String saleId,
+  required String shiftId,
+  required String storeId,
+  required String receiptNo,
+  required int subtotal,
+  required int taxTotal,
+  required int discountTotal,
+  required int grandTotal,
+  required PaymentMethod paymentMethod,
+  required DateTime createdAt,
+  required List<SaleItemInput> items,
+  required List<String> itemIds,
+}) {
+  assert(items.length == itemIds.length);
+  return jsonEncode({
+    'storeId': storeId,
+    'shifts': <Object>[],
+    'sales': [
+      {
+        'id': saleId,
+        'shiftId': shiftId,
+        'receiptNo': receiptNo,
+        'subtotal': subtotal,
+        'taxTotal': taxTotal,
+        'discountTotal': discountTotal,
+        'grandTotal': grandTotal,
+        'paymentMethod': paymentMethod.name.toUpperCase(),
+        'createdAt': createdAt.toUtc().toIso8601String(),
+        'items': [
+          for (var i = 0; i < items.length; i++)
+            {
+              'id': itemIds[i],
+              'productId': items[i].productId,
+              'productNameSnapshot': items[i].productNameSnapshot,
+              'unitPrice': items[i].unitPrice,
+              'qty': items[i].qty,
+            }
+        ],
+      }
+    ],
+  });
 }

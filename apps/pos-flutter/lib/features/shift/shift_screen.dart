@@ -65,7 +65,7 @@ class ShiftScreen extends ConsumerWidget {
                             ),
                           ),
                           Text(
-                            'Code: ${store.code} | Tax: ${(store.taxRateBps / 100).toStringAsFixed(2)}%',
+                            'Code: ${store.code} | Tax: ${formatBpsPercent(store.taxRateBps)}%',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -110,7 +110,6 @@ class ShiftScreen extends ConsumerWidget {
   }
 
   Future<void> _showOpenShiftDialog(BuildContext context, WidgetRef ref) async {
-    final theme = Theme.of(context);
     final openingCashController = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -162,6 +161,13 @@ class ShiftScreen extends ConsumerWidget {
               final amount = int.parse(openingCashController.text.replaceAll(RegExp(r'[^\d]'), ''));
               Navigator.of(context).pop();
               await ref.read(shiftProvider.notifier).openShift(amount);
+              if (!context.mounted) return;
+              final error = ref.read(shiftProvider).error;
+              if (error != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(error)),
+                );
+              }
             },
             child: const Text('Open Shift'),
           ),
@@ -228,6 +234,13 @@ class ShiftScreen extends ConsumerWidget {
               final amount = int.parse(actualCashController.text.replaceAll(RegExp(r'[^\d]'), ''));
               Navigator.of(context).pop();
               await ref.read(shiftProvider.notifier).closeShift(actualCash: amount);
+              if (!context.mounted) return;
+              final state = ref.read(shiftProvider);
+              final message = state.error ??
+                  'Shift closed. Variance: ${formatCurrency(state.variance ?? 0)}';
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(message)),
+              );
             },
             style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
             child: const Text('Close Shift'),

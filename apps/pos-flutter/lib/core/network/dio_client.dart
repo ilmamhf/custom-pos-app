@@ -8,6 +8,7 @@ import '../config/app_config.dart';
 Dio createDioClient({
   required FlutterSecureStorage secureStorage,
   String? baseUrl,
+  AuthInterceptor? authInterceptor,
 }) {
   final dio = Dio(BaseOptions(
     baseUrl: baseUrl ?? AppConfig.apiBaseUrl,
@@ -21,7 +22,7 @@ Dio createDioClient({
   ));
 
   // Auth interceptor - adds JWT token
-  dio.interceptors.add(AuthInterceptor(secureStorage));
+  dio.interceptors.add(authInterceptor ?? AuthInterceptor(secureStorage));
 
   // Store context interceptor - adds X-Store-Id header
   dio.interceptors.add(StoreContextInterceptor());

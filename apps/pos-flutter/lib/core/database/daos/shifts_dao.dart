@@ -1,7 +1,12 @@
 /// DAO for local shifts table.
+///
+/// Every write is paired with a `sync_outbox` entry inside one transaction so
+/// an opened/closed shift is never lost and is eventually pushed to the server.
 
+import 'dart:convert';
 import '../app_database.dart';
 import '../tables/local_shifts.dart';
+import '../tables/sync_outbox.dart';
 
 /// Data access object for LocalShifts.
 class ShiftsDao {
@@ -9,24 +14,17 @@ class ShiftsDao {
 
   final AppDatabase _db;
 
-  /// Inserts a new shift.
+  /// Inserts a new shift and enqueues it for sync atomically.
+  Future<void> openShift(LocalShift shift) async {
+    _db.transaction(() {
+      _insert(shift);
+      _enqueue(shift, SyncOperationType.createShift);
+    });
+  }
+
+  /// Inserts a new shift without enqueuing sync (used by delta pull).
   Future<void> insertShift(LocalShift shift) async {
-    _db.execute('''
-      INSERT INTO local_shifts 
-      (id, store_id, user_id, opened_at, closed_at, opening_cash, expected_cash, actual_cash, variance, last_synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', [
-      shift.id,
-      shift.storeId,
-      shift.userId,
-      shift.openedAt.millisecondsSinceEpoch,
-      shift.closedAt?.millisecondsSinceEpoch,
-      shift.openingCash,
-      shift.expectedCash,
-      shift.actualCash,
-      shift.variance,
-      shift.lastSyncedAt?.millisecondsSinceEpoch,
-    ]);
+    _insert(shift);
   }
 
   /// Gets a shift by ID.
@@ -41,6 +39,8 @@ class ShiftsDao {
     final rows = _db.select('''
       SELECT * FROM local_shifts 
       WHERE store_id = ? AND user_id = ? AND closed_at IS NULL
+      ORDER BY opened_at DESC
+      LIMIT 1
     ''', [storeId, userId]);
     if (rows.isEmpty) return null;
     return _rowToShift(rows.first);
@@ -80,7 +80,8 @@ class ShiftsDao {
     return rows.map(_rowToShift).toList();
   }
 
-  /// Closes a shift with actual cash and calculated variance.
+  /// Closes a shift with actual cash and calculated variance, then enqueues
+  /// the updated shift for sync. Both writes share one transaction.
   Future<void> closeShift({
     required String shiftId,
     required DateTime closedAt,
@@ -88,17 +89,24 @@ class ShiftsDao {
     required int actualCash,
     required int variance,
   }) async {
-    _db.execute('''
-      UPDATE local_shifts 
-      SET closed_at = ?, expected_cash = ?, actual_cash = ?, variance = ?
-      WHERE id = ?
-    ''', [
-      closedAt.millisecondsSinceEpoch,
-      expectedCash,
-      actualCash,
-      variance,
-      shiftId,
-    ]);
+    _db.transaction(() {
+      _db.execute('''
+        UPDATE local_shifts 
+        SET closed_at = ?, expected_cash = ?, actual_cash = ?, variance = ?
+        WHERE id = ?
+      ''', [
+        closedAt.millisecondsSinceEpoch,
+        expectedCash,
+        actualCash,
+        variance,
+        shiftId,
+      ]);
+
+      final rows = _db.select('SELECT * FROM local_shifts WHERE id = ?', [shiftId]);
+      if (rows.isNotEmpty) {
+        _enqueue(_rowToShift(rows.first), SyncOperationType.updateShift);
+      }
+    });
   }
 
   /// Updates last synced timestamp for a shift.
@@ -119,6 +127,40 @@ class ShiftsDao {
     return rows.map(_rowToShift).toList();
   }
 
+  void _insert(LocalShift shift) {
+    _db.execute('''
+      INSERT INTO local_shifts 
+      (id, store_id, user_id, opened_at, closed_at, opening_cash, expected_cash, actual_cash, variance, last_synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', [
+      shift.id,
+      shift.storeId,
+      shift.userId,
+      shift.openedAt.millisecondsSinceEpoch,
+      shift.closedAt?.millisecondsSinceEpoch,
+      shift.openingCash,
+      shift.expectedCash,
+      shift.actualCash,
+      shift.variance,
+      shift.lastSyncedAt?.millisecondsSinceEpoch,
+    ]);
+  }
+
+  void _enqueue(LocalShift shift, SyncOperationType operation) {
+    _db.execute('''
+      INSERT INTO sync_outbox 
+      (entity_id, entity_type, operation, payload, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    ''', [
+      shift.id,
+      'shift',
+      operation.name,
+      buildShiftPushPayload(shift),
+      SyncStatus.pending.name.toUpperCase(),
+      DateTime.now().toUtc().millisecondsSinceEpoch,
+    ]);
+  }
+
   LocalShift _rowToShift(Map<String, Object?> row) {
     return LocalShift(
       id: row['id'] as String,
@@ -137,4 +179,22 @@ class ShiftsDao {
           : null,
     );
   }
+}
+
+/// Builds a `POST /sync/push` body carrying a single shift.
+String buildShiftPushPayload(LocalShift shift) {
+  return jsonEncode({
+    'storeId': shift.storeId,
+    'shifts': [
+      {
+        'id': shift.id,
+        'userId': shift.userId,
+        'openedAt': shift.openedAt.toUtc().toIso8601String(),
+        'closedAt': shift.closedAt?.toUtc().toIso8601String(),
+        'openingCash': shift.openingCash,
+        'actualCash': shift.actualCash,
+      }
+    ],
+    'sales': <Object>[],
+  });
 }

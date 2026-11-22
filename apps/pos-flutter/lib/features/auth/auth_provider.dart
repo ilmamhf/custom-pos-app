@@ -3,7 +3,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../../core/network/dio_client.dart';
-import '../../core/config/app_config.dart';
 
 /// Current user data.
 class User {
@@ -11,20 +10,20 @@ class User {
     required this.id,
     required this.name,
     required this.role,
-    required this.email,
+    this.email,
   });
 
   final String id;
   final String name;
   final String role;
-  final String email;
+  final String? email;
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
       id: json['id'] as String,
-      name: json['name'] as String,
-      role: json['role'] as String,
-      email: json['email'] as String,
+      name: json['name'] as String? ?? 'Cashier',
+      role: json['role'] as String? ?? 'CASHIER',
+      email: json['email'] as String?,
     );
   }
 }
@@ -48,7 +47,7 @@ class UserStore {
       id: json['id'] as String,
       name: json['name'] as String,
       code: json['code'] as String,
-      taxRateBps: json['taxRateBps'] as int,
+      taxRateBps: json['taxRateBps'] as int? ?? 0,
     );
   }
 }
@@ -75,13 +74,15 @@ class AuthState {
     UserStore? selectedStore,
     bool? isLoading,
     String? error,
+    bool clearError = false,
+    bool clearStore = false,
   }) {
     return AuthState(
       user: user ?? this.user,
       stores: stores ?? this.stores,
-      selectedStore: selectedStore ?? this.selectedStore,
+      selectedStore: clearStore ? null : (selectedStore ?? this.selectedStore),
       isLoading: isLoading ?? this.isLoading,
-      error: error ?? this.error,
+      error: clearError ? null : (error ?? this.error),
     );
   }
 
@@ -98,7 +99,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Login with email and password.
   Future<void> login(String email, String password) async {
-    state = state.copyWith(isLoading: true, error: null);
+    state = state.copyWith(isLoading: true, clearError: true);
     try {
       final response = await _dio.post('/auth/login', data: {
         'email': email,
@@ -107,7 +108,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       final data = response.data as Map<String, dynamic>;
       final user = User.fromJson(data['user'] as Map<String, dynamic>);
-      final stores = (data['stores'] as List)
+      final stores = (data['stores'] as List? ?? const [])
           .map((s) => UserStore.fromJson(s as Map<String, dynamic>))
           .toList();
 
@@ -116,25 +117,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
         data['refreshToken'] as String,
       );
 
-      state = state.copyWith(
-        user: user,
-        stores: stores,
-        selectedStore: stores.isNotEmpty ? stores.first : null,
-        isLoading: false,
-        error: null,
-      );
+      // The cashier explicitly picks a store, so multi-store users always see
+      // the selector. A single accessible store is still confirmed there.
+      state = AuthState(user: user, stores: stores);
     } on DioException catch (e) {
       state = state.copyWith(
         isLoading: false,
-        error: e.response?.data['message'] as String? ?? 'Login failed',
+        error: _messageFromError(e),
       );
+      rethrow;
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
       rethrow;
     }
   }
 
   /// Select active store.
   void selectStore(UserStore store) {
-    state = state.copyWith(selectedStore: store);
+    state = state.copyWith(selectedStore: store, clearError: true);
   }
 
   /// Logout and clear tokens.
@@ -145,7 +145,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   /// Clear error.
   void clearError() {
-    state = state.copyWith(error: null);
+    state = state.copyWith(clearError: true);
+  }
+
+  String _messageFromError(DioException e) {
+    final data = e.response?.data;
+    if (data is Map && data['message'] != null) {
+      final message = data['message'];
+      return message is List ? message.join(', ') : message.toString();
+    }
+    if (e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.connectionTimeout) {
+      return 'Cannot reach the server. Check the connection.';
+    }
+    return e.message ?? 'Login failed';
   }
 }
 

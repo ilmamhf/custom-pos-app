@@ -1,57 +1,66 @@
 /// GoRouter configuration with auth and shift guards.
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter/material.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/store_selector.dart';
 import '../../features/auth/auth_provider.dart';
 import '../../features/shift/shift_screen.dart';
 import '../../features/shift/shift_provider.dart';
 
+/// Pure route-guard decision, kept separate so it can be unit tested.
+///
+/// Order matters: authentication first, then store selection, then an open
+/// shift. Once all three are satisfied the POS is the only sensible place to be.
+String? resolveRedirect({
+  required bool isLoggedIn,
+  required bool hasStore,
+  required bool hasOpenShift,
+  required String location,
+}) {
+  if (!isLoggedIn) {
+    return location == '/login' ? null : '/login';
+  }
+  if (!hasStore) {
+    return location == '/store-selector' ? null : '/store-selector';
+  }
+  if (!hasOpenShift) {
+    return location == '/shift' ? null : '/shift';
+  }
+  if (location == '/login' ||
+      location == '/store-selector' ||
+      location == '/shift') {
+    return '/pos';
+  }
+  return null;
+}
+
+/// Notifies GoRouter when auth or shift state changes without rebuilding it.
+class _RouterRefresh extends ChangeNotifier {
+  void refresh() => notifyListeners();
+}
+
 /// GoRouter provider with auth and shift guards.
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authProvider);
-  final shiftState = ref.watch(shiftProvider);
+  final refresh = _RouterRefresh();
+  ref.onDispose(refresh.dispose);
+  ref.listen(authProvider, (_, __) => refresh.refresh());
+  ref.listen(shiftProvider, (_, __) => refresh.refresh());
 
   return GoRouter(
     initialLocation: '/login',
+    refreshListenable: refresh,
     redirect: (context, state) {
-      final isLoggedIn = authState.isLoggedIn;
-      final hasStore = authState.hasSelectedStore;
-      final hasOpenShift = shiftState.isOpen;
-      final location = state.matchedLocation;
-
-      // Not logged in - redirect to login
-      if (!isLoggedIn) {
-        if (location != '/login') {
-          return '/login';
-        }
-        return null;
-      }
-
-      // Logged in but no store selected - redirect to store selector
-      if (!hasStore) {
-        if (location != '/store-selector') {
-          return '/store-selector';
-        }
-        return null;
-      }
-
-      // Has store but no open shift - redirect to shift screen
-      if (!hasOpenShift) {
-        if (location != '/shift') {
-          return '/shift';
-        }
-        return null;
-      }
-
-      // Has open shift - allow access to POS
-      if (location == '/login' || location == '/store-selector' || location == '/shift') {
-        return '/pos';
-      }
-
-      return null;
+      final authState = ref.read(authProvider);
+      final shiftState = ref.read(shiftProvider);
+      return resolveRedirect(
+        isLoggedIn: authState.isLoggedIn,
+        hasStore: authState.hasSelectedStore,
+        hasOpenShift: shiftState.isOpen,
+        location: state.matchedLocation,
+      );
     },
     routes: [
       GoRoute(
@@ -66,12 +75,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/shift',
         builder: (context, state) => const ShiftScreen(),
       ),
-      // POS route - placeholder for Phase 4
       GoRoute(
         path: '/pos',
         builder: (context, state) => const _PosPlaceholderScreen(),
       ),
-      // Refund route - placeholder for Phase 5
       GoRoute(
         path: '/refund/:saleId',
         builder: (context, state) => const _RefundPlaceholderScreen(),
@@ -127,8 +134,8 @@ class _PosPlaceholderScreen extends ConsumerWidget {
               const SizedBox(height: 16),
               Text(
                 'Store: ${authState.selectedStore?.name ?? 'None'}\n'
-                'Shift: ${shiftState.currentShift?.id?.substring(0, 8) ?? 'None'}...\n'
-                'Opening Cash: ${shiftState.currentShift?.openingCash != null ? 'Rp ${shiftState.currentShift!.openingCash!}' : 'N/A'}',
+                'Shift: ${shiftState.id?.substring(0, 8) ?? 'None'}...\n'
+                'Opening Cash: ${shiftState.openingCash ?? 0}',
                 style: theme.textTheme.bodyLarge?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),

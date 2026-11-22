@@ -100,6 +100,16 @@ int parseIdr(String input) {
   return int.tryParse(cleaned) ?? 0;
 }
 
+/// Formats a basis-point rate as a percentage without floating point math.
+/// Example: 1100 -> "11.00", 975 -> "9.75".
+String formatBpsPercent(int rateBps) {
+  final sign = rateBps < 0 ? '-' : '';
+  final abs = rateBps.abs();
+  final whole = abs ~/ 100;
+  final fraction = (abs % 100).toString().padLeft(2, '0');
+  return '$sign$whole.$fraction';
+}
+
 /// Rounds an integer amount to the nearest 100 (for cash rounding in IDR).
 /// Uses "round half up" strategy: 50 and above rounds away from zero.
 int roundToNearest100(int amount) {

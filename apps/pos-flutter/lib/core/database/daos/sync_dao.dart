@@ -167,4 +167,13 @@ class SyncDao {
       orElse: () => SyncStatus.pending,
     );
   }
+
+  /// Gets the most recent successful sync timestamp across all entities.
+  Future<DateTime?> getLastSyncedAt() async {
+    final rows = _db.select('''
+      SELECT MAX(synced_at) AS max_synced FROM sync_outbox WHERE status = ?
+    ''', [SyncStatus.synced.name.toUpperCase()]);
+    if (rows.isEmpty || rows.first['max_synced'] == null) return null;
+    return DateTime.fromMillisecondsSinceEpoch(rows.first['max_synced'] as int);
+  }
 }

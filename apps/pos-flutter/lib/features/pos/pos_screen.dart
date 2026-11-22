@@ -13,6 +13,7 @@ import '../../core/utils/currency.dart';
 import '../auth/auth_provider.dart';
 import '../catalog/catalog_provider.dart';
 import '../shift/shift_provider.dart';
+import '../sync/sync_provider.dart';
 import 'cart_math.dart';
 import 'cart_provider.dart';
 import 'payment_dialog.dart';
@@ -113,6 +114,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               if (context.mounted) context.go('/login');
             },
           ),
+          const SizedBox(width: 8),
+          _SyncStatusBadge(),
           const SizedBox(width: 8),
         ],
       ),
@@ -848,6 +851,47 @@ class _SaleCompleteDialog extends StatelessWidget {
           child: const Text('New sale'),
         ),
       ],
+    );
+  }
+}
+
+class _SyncStatusBadge extends ConsumerWidget {
+  const _SyncStatusBadge();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(syncStatusProvider);
+    final theme = Theme.of(context);
+
+    Color color;
+    IconData icon;
+    String tooltip;
+
+    if (!status.isOnline) {
+      color = theme.colorScheme.error;
+      icon = Icons.cloud_off;
+      tooltip = 'Offline';
+    } else if (status.isSyncing) {
+      color = theme.colorScheme.primary;
+      icon = Icons.sync;
+      tooltip = 'Syncing...';
+    } else if (status.pendingCount > 0) {
+      color = theme.colorScheme.tertiary;
+      icon = Icons.cloud_upload;
+      tooltip = '${status.pendingCount} pending';
+    } else if (status.failedCount > 0) {
+      color = theme.colorScheme.error;
+      icon = Icons.error;
+      tooltip = '${status.failedCount} failed';
+    } else {
+      color = theme.colorScheme.primary;
+      icon = Icons.cloud_done;
+      tooltip = 'Synced';
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: Icon(icon, color: color, size: 22),
     );
   }
 }

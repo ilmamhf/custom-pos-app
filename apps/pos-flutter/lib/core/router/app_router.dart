@@ -7,6 +7,7 @@ import '../../features/auth/login_screen.dart';
 import '../../features/auth/store_selector.dart';
 import '../../features/auth/auth_provider.dart';
 import '../../features/pos/pos_screen.dart';
+import '../../features/receipts/refund_screen.dart';
 import '../../features/shift/shift_screen.dart';
 import '../../features/shift/shift_provider.dart';
 
@@ -81,55 +82,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/refund/:saleId',
-        builder: (context, state) => const _RefundPlaceholderScreen(),
+        builder: (context, state) => RefundScreen(saleId: state.pathParameters['saleId']!),
       ),
     ],
   );
 });
 
-/// Placeholder Refund screen (Phase 5).
-class _RefundPlaceholderScreen extends ConsumerWidget {
-  const _RefundPlaceholderScreen();
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final saleId = GoRouterState.of(context).pathParameters['saleId'] ?? 'unknown';
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Refund (Phase 5)'),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.assignment_return,
-                size: 96,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Refund Screen',
-                style: theme.textTheme.displayMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Sale ID: $saleId\n\nPIN-gated refund flow will be implemented in Phase 5',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

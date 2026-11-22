@@ -9,6 +9,7 @@ import 'package:pos_flutter/core/theme/app_theme.dart';
 import 'package:pos_flutter/features/auth/auth_provider.dart';
 import 'package:pos_flutter/features/pos/pos_screen.dart';
 import 'package:pos_flutter/features/shift/shift_provider.dart';
+import 'package:pos_flutter/features/sync/sync_provider.dart';
 
 const _store = UserStore(
   id: 'store-1',
@@ -63,6 +64,7 @@ void main() {
         overrides: [
           databaseProvider.overrideWithValue(db),
           shiftAuthProvider.overrideWithValue(_auth),
+          syncProvider.overrideWith((ref) => SyncNotifier.test()),
         ],
         child: MaterialApp(
           theme: buildLightTheme(),

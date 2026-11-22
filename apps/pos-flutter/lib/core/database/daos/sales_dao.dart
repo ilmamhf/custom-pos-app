@@ -279,6 +279,13 @@ class SalesDao {
     return rows.map(_rowToSaleItem).toList();
   }
 
+  /// Updates last_synced_at for a sale (called after successful push).
+  Future<void> updateLastSynced(String saleId, DateTime timestamp) async {
+    _db.execute('''
+      UPDATE local_sales SET last_synced_at = ? WHERE id = ?
+    ''', [timestamp.millisecondsSinceEpoch, saleId]);
+  }
+
   LocalSale _rowToSale(Map<String, Object?> row) {
     return LocalSale(
       id: row['id'] as String,

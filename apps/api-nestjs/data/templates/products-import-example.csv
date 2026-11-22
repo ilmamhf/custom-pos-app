@@ -1,0 +1,4 @@
+sku,barcode,name,basePrice,costPrice,storeCode,stockOnHand,priceOverride,isActive
+KOPI-002,8991234567893,Kopi Susu Gula Aren,19000,9500,BKS,40,,true
+KOPI-002,8991234567893,Kopi Susu Gula Aren,19000,9500,KMG,30,20000,true
+ROTI-002,8991234567894,Roti Coklat Klasik,13000,6500,BKS,25,13500,true

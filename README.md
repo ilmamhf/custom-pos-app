@@ -122,6 +122,17 @@ Running the seed again resets the seeded account passwords and PINs. It also res
 
 These are development-only credentials. Change or remove them before deploying the API outside a local environment.
 
+### Bulk product data
+
+The normal seed remains small. To load a large product and starting-stock dataset from CSV, use the standalone bulk loader:
+
+```powershell
+cd apps\api-nestjs
+npm run data:import:dry-run -- .\data\templates\products-import-example.csv
+```
+
+See [`docs/bulk-product-import.md`](docs/bulk-product-import.md) for the template, validation rules, and import command.
+
 ### Verify the API login from PowerShell
 
 With the API running:

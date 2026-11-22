@@ -10,7 +10,7 @@ void main() {
   late AppDatabase db;
 
   setUp(() async {
-    db = AppDatabase.inMemory();
+    db = await AppDatabase.inMemory();
     await db.productsDao.upsertProduct(
       LocalProduct(
         id: 'prod-1',

@@ -137,8 +137,11 @@ class ShiftNotifier extends StateNotifier<ShiftState> {
   /// Re-reads the local shift (used after a sync pull or a sale).
   Future<void> refresh() => _loadCurrentShift();
 
-  /// Opens a new shift locally and queues it for sync.
-  Future<void> openShift(int openingCash) async {
+  /// Opens a new shift locally and optionally queues it for sync.
+  ///
+  /// Browser demo sessions pass [syncToServer] as false so sample records stay
+  /// local even after the page is reloaded.
+  Future<void> openShift(int openingCash, {bool syncToServer = true}) async {
     _loadToken++;
     final authState = _ref.read(shiftAuthProvider);
     final store = authState.selectedStore;
@@ -162,7 +165,10 @@ class ShiftNotifier extends StateNotifier<ShiftState> {
         openedAt: DateTime.now().toUtc(),
         openingCash: openingCash,
       );
-      await _db.shiftsDao.openShift(shift);
+      await _db.shiftsDao.openShift(
+        shift,
+        syncToServer: syncToServer,
+      );
       if (!mounted) return;
       state = ShiftState.fromShift(shift).copyWith(
         expectedCash: openingCash,
@@ -175,7 +181,10 @@ class ShiftNotifier extends StateNotifier<ShiftState> {
   }
 
   /// Closes the current shift, computing expected cash and variance locally.
-  Future<void> closeShift({required int actualCash}) async {
+  Future<void> closeShift({
+    required int actualCash,
+    bool syncToServer = true,
+  }) async {
     _loadToken++;
     final shiftId = state.id;
     if (shiftId == null || !state.isOpen) return;
@@ -199,6 +208,7 @@ class ShiftNotifier extends StateNotifier<ShiftState> {
         expectedCash: expectedCash,
         actualCash: actualCash,
         variance: variance,
+        syncToServer: syncToServer,
       );
 
       if (!mounted) return;

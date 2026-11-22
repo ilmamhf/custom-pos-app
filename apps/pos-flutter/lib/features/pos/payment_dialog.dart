@@ -112,6 +112,7 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
             shiftId: shift.id!,
             cashierId: user.id,
             amountTendered: _method == PaymentMethod.cash ? _tendered : null,
+            syncToServer: !auth.isDemo,
           );
 
       ref.read(cartProvider.notifier).clear();
@@ -148,11 +149,12 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
     final suggestions = suggestedCashAmounts(widget.grandTotal);
 
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -195,21 +197,19 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
               ),
               const SizedBox(height: 20),
               SegmentedButton<PaymentMethod>(
+                showSelectedIcon: false,
                 segments: const [
                   ButtonSegment(
                     value: PaymentMethod.cash,
                     label: Text('Cash'),
-                    icon: Icon(Icons.payments_outlined),
                   ),
                   ButtonSegment(
                     value: PaymentMethod.qris,
                     label: Text('QRIS'),
-                    icon: Icon(Icons.qr_code_2),
                   ),
                   ButtonSegment(
                     value: PaymentMethod.card,
                     label: Text('Card'),
-                    icon: Icon(Icons.credit_card),
                   ),
                 ],
                 selected: {_method},
@@ -310,7 +310,13 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
                                 color: Colors.white,
                               ),
                             )
-                          : Text('Complete Sale • ${formatIdr(widget.grandTotal)}'),
+                          : FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'Complete Sale • ${formatIdr(widget.grandTotal)}',
+                                maxLines: 1,
+                              ),
+                            ),
                     ),
                   ),
                 ],

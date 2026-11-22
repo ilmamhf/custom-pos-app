@@ -1,7 +1,8 @@
 /// DAO for local shifts table.
 ///
-/// Every write is paired with a `sync_outbox` entry inside one transaction so
-/// an opened/closed shift is never lost and is eventually pushed to the server.
+/// Real-session writes are paired with a `sync_outbox` entry inside one
+/// transaction so an opened/closed shift is never lost. Local-only demo
+/// shifts deliberately omit that entry.
 
 import 'dart:convert';
 import '../app_database.dart';
@@ -14,12 +15,18 @@ class ShiftsDao {
 
   final AppDatabase _db;
 
-  /// Inserts a new shift and enqueues it for sync atomically.
-  Future<void> openShift(LocalShift shift) async {
+  /// Inserts a new shift and optionally enqueues it for sync atomically.
+  Future<void> openShift(
+    LocalShift shift, {
+    bool syncToServer = true,
+  }) async {
     _db.transaction(() {
       _insert(shift);
-      _enqueue(shift, SyncOperationType.createShift);
+      if (syncToServer) {
+        _enqueue(shift, SyncOperationType.createShift);
+      }
     });
+    await _db.flush();
   }
 
   /// Inserts a new shift without enqueuing sync (used by delta pull).
@@ -59,7 +66,8 @@ class ShiftsDao {
   }
 
   /// Gets all shifts for a store, ordered by opened_at desc.
-  Future<List<LocalShift>> getShiftsForStore(String storeId, {int limit = 50}) async {
+  Future<List<LocalShift>> getShiftsForStore(String storeId,
+      {int limit = 50}) async {
     final rows = _db.select('''
       SELECT * FROM local_shifts 
       WHERE store_id = ?
@@ -70,7 +78,8 @@ class ShiftsDao {
   }
 
   /// Gets all shifts for a user across stores.
-  Future<List<LocalShift>> getShiftsForUser(String userId, {int limit = 50}) async {
+  Future<List<LocalShift>> getShiftsForUser(String userId,
+      {int limit = 50}) async {
     final rows = _db.select('''
       SELECT * FROM local_shifts 
       WHERE user_id = ?
@@ -80,14 +89,15 @@ class ShiftsDao {
     return rows.map(_rowToShift).toList();
   }
 
-  /// Closes a shift with actual cash and calculated variance, then enqueues
-  /// the updated shift for sync. Both writes share one transaction.
+  /// Closes a shift with actual cash and calculated variance, then optionally
+  /// enqueues the updated shift for sync. Both writes share one transaction.
   Future<void> closeShift({
     required String shiftId,
     required DateTime closedAt,
     required int expectedCash,
     required int actualCash,
     required int variance,
+    bool syncToServer = true,
   }) async {
     _db.transaction(() {
       _db.execute('''
@@ -102,11 +112,13 @@ class ShiftsDao {
         shiftId,
       ]);
 
-      final rows = _db.select('SELECT * FROM local_shifts WHERE id = ?', [shiftId]);
-      if (rows.isNotEmpty) {
+      final rows =
+          _db.select('SELECT * FROM local_shifts WHERE id = ?', [shiftId]);
+      if (rows.isNotEmpty && syncToServer) {
         _enqueue(_rowToShift(rows.first), SyncOperationType.updateShift);
       }
     });
+    await _db.flush();
   }
 
   /// Updates last synced timestamp for a shift.

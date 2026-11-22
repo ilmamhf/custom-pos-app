@@ -12,7 +12,7 @@ void main() {
   late CheckoutService service;
 
   setUp(() async {
-    db = AppDatabase.inMemory();
+    db = await AppDatabase.inMemory();
     service = CheckoutService(db);
     await db.productsDao.upsertProduct(
       LocalProduct(
@@ -31,7 +31,8 @@ void main() {
 
   const cart = CartState(
     lines: [
-      CartLine(productId: 'prod-1', name: 'Kopi Susu', unitPrice: 18000, qty: 2),
+      CartLine(
+          productId: 'prod-1', name: 'Kopi Susu', unitPrice: 18000, qty: 2),
     ],
     taxRateBps: 1100,
   );
@@ -41,6 +42,7 @@ void main() {
     PaymentMethod method = PaymentMethod.cash,
     int? tendered,
     DateTime? now,
+    bool syncToServer = true,
   }) {
     return service.checkout(
       cart: state,
@@ -51,6 +53,7 @@ void main() {
       cashierId: 'user-1',
       amountTendered: tendered,
       now: now,
+      syncToServer: syncToServer,
     );
   }
 
@@ -71,6 +74,19 @@ void main() {
 
     expect((await db.productsDao.getProductById('prod-1'))!.stockOnHand, 8);
     expect(await db.syncDao.getPendingEntries(), hasLength(1));
+  });
+
+  test('local-only checkout persists without queuing server sync', () async {
+    final result = await checkout(syncToServer: false);
+
+    final sale = await db.salesDao.getSaleWithItems(result.saleId);
+    expect(sale, isNotNull);
+    expect((await db.productsDao.getProductById('prod-1'))!.stockOnHand, 8);
+    expect(await db.syncDao.getPendingEntries(), isEmpty);
+    expect(
+      await db.syncDao.getEntryByEntity('sale', result.saleId),
+      isNull,
+    );
   });
 
   test('receipt sequence increments within the same day', () async {

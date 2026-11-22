@@ -1,5 +1,7 @@
 /// DAO for sync outbox table.
 
+import 'dart:convert';
+
 import '../app_database.dart';
 import '../tables/sync_outbox.dart';
 
@@ -37,7 +39,8 @@ class SyncDao {
   }
 
   /// Gets failed entries ready for retry.
-  Future<List<SyncOutboxEntry>> getFailedEntriesForRetry({int limit = 50, int maxRetries = 3}) async {
+  Future<List<SyncOutboxEntry>> getFailedEntriesForRetry(
+      {int limit = 50, int maxRetries = 3}) async {
     final rows = _db.select('''
       SELECT * FROM sync_outbox 
       WHERE status = ? AND retry_count < ?
@@ -87,6 +90,31 @@ class SyncDao {
     ]);
   }
 
+  /// Deletes an outbox entry that must never be sent to the server.
+  Future<void> deleteEntry(int id) async {
+    _db.delete('sync_outbox', 'id = ?', [id]);
+    await _db.flush();
+  }
+
+  /// Deletes every outbox entry belonging to [storeId].
+  ///
+  /// This is used to clean up browser-demo records created by an earlier
+  /// preview build before they can be pushed to the real API.
+  Future<void> deleteEntriesForStore(String storeId) async {
+    final rows = _db.select('SELECT id, payload FROM sync_outbox');
+    for (final row in rows) {
+      try {
+        final payload = jsonDecode(row['payload'] as String);
+        if (payload is Map && payload['storeId'] == storeId) {
+          _db.delete('sync_outbox', 'id = ?', [row['id']]);
+        }
+      } on FormatException {
+        // Malformed payloads remain visible for normal error handling.
+      }
+    }
+    await _db.flush();
+  }
+
   /// Gets count of pending entries.
   Future<int> getPendingCount() async {
     final rows = _db.select('''
@@ -104,8 +132,10 @@ class SyncDao {
   }
 
   /// Deletes old synced entries (cleanup).
-  Future<int> deleteOldSyncedEntries({Duration olderThan = const Duration(days: 30)}) async {
-    final cutoff = DateTime.now().toUtc().subtract(olderThan).millisecondsSinceEpoch;
+  Future<int> deleteOldSyncedEntries(
+      {Duration olderThan = const Duration(days: 30)}) async {
+    final cutoff =
+        DateTime.now().toUtc().subtract(olderThan).millisecondsSinceEpoch;
     return _db.delete(
       'sync_outbox',
       'status = ? AND synced_at < ?',
@@ -114,7 +144,8 @@ class SyncDao {
   }
 
   /// Gets an entry by entity ID and type.
-  Future<SyncOutboxEntry?> getEntryByEntity(String entityType, String entityId) async {
+  Future<SyncOutboxEntry?> getEntryByEntity(
+      String entityType, String entityId) async {
     final rows = _db.select('''
       SELECT * FROM sync_outbox 
       WHERE entity_type = ? AND entity_id = ?

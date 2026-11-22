@@ -28,6 +28,7 @@ class ProductsDao {
         product.lastSyncedAt?.millisecondsSinceEpoch,
       ]);
     });
+    await _db.flush();
   }
 
   /// Inserts or updates multiple products in a batch.
@@ -51,6 +52,7 @@ class ProductsDao {
         ]);
       }
     });
+    await _db.flush();
   }
 
   /// Gets a product by ID.

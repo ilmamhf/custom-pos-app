@@ -1,5 +1,6 @@
 /// Flutter POS Cashier App entry point.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -7,6 +8,7 @@ import 'core/config/app_config.dart';
 import 'core/database/app_database.dart';
 import 'core/database/database_provider.dart';
 import 'core/network/dio_client.dart';
+import 'core/platform/web_app_shell.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/auth_provider.dart';
@@ -49,6 +51,10 @@ class PosApp extends ConsumerWidget {
       darkTheme: buildDarkTheme(),
       themeMode: ThemeMode.light,
       routerConfig: ref.watch(routerProvider),
+      builder: (context, child) {
+        final app = child ?? const SizedBox.shrink();
+        return kIsWeb ? WebAppShell(child: app) : app;
+      },
     );
   }
 }

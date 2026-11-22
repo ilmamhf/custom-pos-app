@@ -94,6 +94,7 @@ flutter test      → 150 passed
 | 3 | Auth, Store Selection & Shift (local-first, PIN dialog, guards) | ✅ |
 | 4 | POS Catalog, Cart & Offline Checkout (responsive UI, 42 tests) | ✅ |
 | 5 | Sync Engine, Receipt Printing & Refunds | ✅ |
+| 6 | Web & Mobile Browser Support (SQLite WASM, IndexedDB, responsive shell, offline demo) | ✅ |
 
-**Total tests: 150** — all passing. The app is a working offline-first POS
-cashier for 1–3 store retail.
+**Total tests: 156** — all passing. The app is a working offline-first POS
+cashier for 1–3 store retail in native mobile and browser builds.

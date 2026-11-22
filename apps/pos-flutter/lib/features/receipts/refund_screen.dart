@@ -171,6 +171,7 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
           DateTime.now().toUtc().millisecondsSinceEpoch,
         ]);
       });
+      await db.flush();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

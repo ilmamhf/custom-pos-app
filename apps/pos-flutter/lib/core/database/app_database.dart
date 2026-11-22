@@ -1,9 +1,7 @@
 /// Simple SQLite database wrapper for offline-first POS operations.
 
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
+import 'database_connection.dart';
 import 'daos/products_dao.dart';
 import 'daos/shifts_dao.dart';
 import 'daos/sales_dao.dart';
@@ -11,7 +9,7 @@ import 'daos/sync_dao.dart';
 
 /// The main database class for the POS app.
 class AppDatabase {
-  late final Database _db;
+  late final CommonDatabase _db;
 
   // DAOs
   late final ProductsDao productsDao;
@@ -25,17 +23,17 @@ class AppDatabase {
     _initDaos();
   }
 
-  /// Opens the database file in the app documents directory.
+  /// Opens the persistent database for the current platform.
   static Future<AppDatabase> open() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, 'pos_flutter.sqlite'));
-    final db = sqlite3.open(file.path);
-    return AppDatabase._(db);
+    final db = await openPlatformDatabase();
+    final appDatabase = AppDatabase._(db);
+    await appDatabase.flush();
+    return appDatabase;
   }
 
   /// Creates an in-memory database for testing.
-  static AppDatabase inMemory() {
-    final db = sqlite3.openInMemory();
+  static Future<AppDatabase> inMemory() async {
+    final db = await openInMemoryPlatformDatabase();
     return AppDatabase._(db);
   }
 
@@ -199,6 +197,9 @@ class AppDatabase {
     batch.execute();
   }
 
+  /// Flushes pending writes to persistent storage.
+  Future<void> flush() => flushPlatformDatabase();
+
   /// Closes the database.
   void close() {
     _db.dispose();
@@ -238,7 +239,7 @@ class AppDatabase {
 
 /// Simple batch implementation
 class Batch {
-  final Database _db;
+  final CommonDatabase _db;
   final List<_BatchOperation> _operations = [];
 
   Batch(this._db);

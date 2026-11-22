@@ -1,8 +1,9 @@
 /// Offline checkout orchestration: cart -> local atomic sale.
 ///
-/// This service never touches the network. The sale, its items, the stock
-/// decrement and the sync-outbox entry are committed in one transaction by
-/// `SalesDao.completeSale`.
+/// This service never touches the network. The sale, its items, and the stock
+/// decrement are committed in one transaction by `SalesDao.completeSale`.
+/// Real sessions also commit a sync-outbox entry in that transaction; the
+/// browser demo can keep its sale local-only.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/app_database.dart';
@@ -37,6 +38,7 @@ class CheckoutService {
     required String cashierId,
     int? amountTendered,
     DateTime? now,
+    bool syncToServer = true,
   }) async {
     if (cart.isEmpty) {
       throw const CheckoutException('Cart is empty');
@@ -86,6 +88,7 @@ class CheckoutService {
       grandTotal: cart.grandTotal,
       paymentMethod: paymentMethod,
       items: items,
+      syncToServer: syncToServer,
     );
   }
 }

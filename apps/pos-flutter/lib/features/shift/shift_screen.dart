@@ -85,15 +85,19 @@ class ShiftScreen extends ConsumerWidget {
               const SizedBox(height: 24),
               // Close Shift Button
               FilledButton.icon(
-                onPressed: shiftState.isClosing ? null : () => _showCloseShiftDialog(context, ref),
+                onPressed: shiftState.isClosing
+                    ? null
+                    : () => _showCloseShiftDialog(context, ref),
                 icon: shiftState.isClosing
                     ? const SizedBox(
                         height: 20,
                         width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.lock_clock),
-                label: Text(shiftState.isClosing ? 'Closing...' : 'Close Shift'),
+                label:
+                    Text(shiftState.isClosing ? 'Closing...' : 'Close Shift'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   backgroundColor: theme.colorScheme.error,
@@ -101,7 +105,8 @@ class ShiftScreen extends ConsumerWidget {
               ),
             ] else ...[
               // No active shift - show Open Shift
-              _OpenShiftCard(onOpenShift: () => _showOpenShiftDialog(context, ref)),
+              _OpenShiftCard(
+                  onOpenShift: () => _showOpenShiftDialog(context, ref)),
             ],
           ],
         ),
@@ -140,7 +145,8 @@ class ShiftScreen extends ConsumerWidget {
                   if (value == null || value.isEmpty) {
                     return 'Please enter opening cash';
                   }
-                  final amount = int.tryParse(value.replaceAll(RegExp(r'[^\d]'), ''));
+                  final amount =
+                      int.tryParse(value.replaceAll(RegExp(r'[^\d]'), ''));
                   if (amount == null || amount < 0) {
                     return 'Enter a valid amount';
                   }
@@ -158,9 +164,13 @@ class ShiftScreen extends ConsumerWidget {
           FilledButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
-              final amount = int.parse(openingCashController.text.replaceAll(RegExp(r'[^\d]'), ''));
+              final amount = int.parse(
+                  openingCashController.text.replaceAll(RegExp(r'[^\d]'), ''));
               Navigator.of(context).pop();
-              await ref.read(shiftProvider.notifier).openShift(amount);
+              await ref.read(shiftProvider.notifier).openShift(
+                    amount,
+                    syncToServer: !ref.read(authProvider).isDemo,
+                  );
               if (!context.mounted) return;
               final error = ref.read(shiftProvider).error;
               if (error != null) {
@@ -176,7 +186,8 @@ class ShiftScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _showCloseShiftDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _showCloseShiftDialog(
+      BuildContext context, WidgetRef ref) async {
     final theme = Theme.of(context);
     final actualCashController = TextEditingController();
     final formKey = GlobalKey<FormState>();
@@ -213,7 +224,8 @@ class ShiftScreen extends ConsumerWidget {
                   if (value == null || value.isEmpty) {
                     return 'Please enter actual cash';
                   }
-                  final amount = int.tryParse(value.replaceAll(RegExp(r'[^\d]'), ''));
+                  final amount =
+                      int.tryParse(value.replaceAll(RegExp(r'[^\d]'), ''));
                   if (amount == null || amount < 0) {
                     return 'Enter a valid amount';
                   }
@@ -231,9 +243,13 @@ class ShiftScreen extends ConsumerWidget {
           FilledButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
-              final amount = int.parse(actualCashController.text.replaceAll(RegExp(r'[^\d]'), ''));
+              final amount = int.parse(
+                  actualCashController.text.replaceAll(RegExp(r'[^\d]'), ''));
               Navigator.of(context).pop();
-              await ref.read(shiftProvider.notifier).closeShift(actualCash: amount);
+              await ref.read(shiftProvider.notifier).closeShift(
+                    actualCash: amount,
+                    syncToServer: !ref.read(authProvider).isDemo,
+                  );
               if (!context.mounted) return;
               final state = ref.read(shiftProvider);
               final message = state.error ??
@@ -242,7 +258,8 @@ class ShiftScreen extends ConsumerWidget {
                 SnackBar(content: Text(message)),
               );
             },
-            style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error),
             child: const Text('Close Shift'),
           ),
         ],
@@ -304,7 +321,8 @@ class _ActiveShiftCard extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primary,
                     borderRadius: BorderRadius.circular(20),
@@ -435,7 +453,8 @@ class _OpenShiftCard extends StatelessWidget {
               icon: const Icon(Icons.add),
               label: const Text('Open New Shift'),
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
               ),
             ),
           ],

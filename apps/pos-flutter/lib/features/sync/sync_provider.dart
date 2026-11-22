@@ -56,7 +56,8 @@ class SyncStatusState {
 
 /// Notifier that runs the sync loop.
 class SyncNotifier extends StateNotifier<SyncStatusState> {
-  SyncNotifier(this._db, this._dio, this._ref) : super(const SyncStatusState()) {
+  SyncNotifier(this._db, this._dio, this._ref)
+      : super(const SyncStatusState()) {
     _init();
   }
 
@@ -82,7 +83,8 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     if (_db == null) return;
 
     await _refreshCounts();
-    _connSub = Connectivity().onConnectivityChanged.listen(_onConnectivityChanged);
+    _connSub =
+        Connectivity().onConnectivityChanged.listen(_onConnectivityChanged);
     final initial = await Connectivity().checkConnectivity();
     _onConnectivityChanged(initial);
     _timer = Timer.periodic(const Duration(seconds: 30), (_) => _maybeSync());
@@ -100,17 +102,24 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     final pending = await _db.syncDao.getPendingCount();
     final failed = await _db.syncDao.getFailedCount();
     final lastSynced = await _db.syncDao.getLastSyncedAt();
-    state = state.copyWith(pendingCount: pending, failedCount: failed, lastSyncedAt: lastSynced);
+    state = state.copyWith(
+        pendingCount: pending, failedCount: failed, lastSyncedAt: lastSynced);
   }
 
   Future<void> _maybeSync() async {
-    if (!state.isOnline || state.isSyncing || state.pendingCount == 0 || _db == null) return;
+    if (!state.isOnline ||
+        state.isSyncing ||
+        state.pendingCount == 0 ||
+        _db == null) return;
     await syncNow();
   }
 
   /// Manual trigger (e.g., pull-to-refresh).
   Future<void> syncNow() async {
-    if (state.isSyncing || !state.isOnline || _db == null || _dio == null) return;
+    if (state.isSyncing || !state.isOnline || _db == null || _dio == null)
+      return;
+    final auth = _ref?.read(shiftAuthProvider);
+    if (auth?.isDemo ?? false) return;
     state = state.copyWith(isSyncing: true, clearError: true);
     try {
       await _pushOutbox();
@@ -138,11 +147,19 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
         try {
           final payload = jsonDecode(entry.payload) as Map<String, dynamic>;
           final storeId = payload['storeId'] as String;
-          final response = await dio.post('/sync/push', data: payload, options: Options(headers: {'X-Store-Id': storeId}));
+          if (storeId == demoStoreId) {
+            await db.syncDao.deleteEntry(entry.id);
+            continue;
+          }
+          final response = await dio.post('/sync/push',
+              data: payload,
+              options: Options(headers: {'X-Store-Id': storeId}));
           if (response.statusCode == 200) {
             final data = response.data as Map<String, dynamic>;
-            final syncedShifts = (data['syncedShiftIds'] as List?)?.cast<String>() ?? const [];
-            final syncedSales = (data['syncedSaleIds'] as List?)?.cast<String>() ?? const [];
+            final syncedShifts =
+                (data['syncedShiftIds'] as List?)?.cast<String>() ?? const [];
+            final syncedSales =
+                (data['syncedSaleIds'] as List?)?.cast<String>() ?? const [];
             await _markLocalSynced(syncedShifts, syncedSales);
             await db.syncDao.markSynced(entry.id);
           } else {
@@ -156,7 +173,8 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     }
   }
 
-  Future<void> _markLocalSynced(List<String> shiftIds, List<String> saleIds) async {
+  Future<void> _markLocalSynced(
+      List<String> shiftIds, List<String> saleIds) async {
     if (_db == null) return;
     final db = _db;
     final now = DateTime.now().toUtc();
@@ -221,11 +239,13 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
 }
 
 /// Provider for the sync notifier.
-final syncProvider = StateNotifierProvider<SyncNotifier, SyncStatusState>((ref) {
+final syncProvider =
+    StateNotifierProvider<SyncNotifier, SyncStatusState>((ref) {
   final db = ref.watch(databaseProvider);
   final dio = ref.watch(dioProvider);
   return SyncNotifier(db, dio, ref);
 });
 
 /// Exposes just the status for the app-bar badge.
-final syncStatusProvider = Provider<SyncStatusState>((ref) => ref.watch(syncProvider));
+final syncStatusProvider =
+    Provider<SyncStatusState>((ref) => ref.watch(syncProvider));

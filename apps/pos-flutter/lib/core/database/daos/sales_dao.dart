@@ -60,7 +60,7 @@ class SalesDao {
   /// Completes a sale atomically:
   /// 1. Insert sale and sale items
   /// 2. Decrement product stock
-  /// 3. Enqueue sync outbox entry
+  /// 3. Optionally enqueue a server-sync outbox entry
   /// All in a single transaction.
   Future<SaleCheckoutResult> completeSale({
     required String saleId,
@@ -74,8 +74,9 @@ class SalesDao {
     required int grandTotal,
     required PaymentMethod paymentMethod,
     required List<SaleItemInput> items,
+    bool syncToServer = true,
   }) async {
-    return _db.transactionResult<SaleCheckoutResult>(() {
+    final result = _db.transactionResult<SaleCheckoutResult>(() {
       final createdAt = DateTime.now().toUtc();
 
       // 1. Insert sale
@@ -130,42 +131,47 @@ class SalesDao {
         ''', [item.qty, item.productId]);
       }
 
-      // 3. Enqueue sync outbox entry
-      final payload = buildSalePushPayload(
-        saleId: saleId,
-        shiftId: shiftId,
-        storeId: storeId,
-        receiptNo: receiptNo,
-        subtotal: subtotal,
-        taxTotal: taxTotal,
-        discountTotal: discountTotal,
-        grandTotal: grandTotal,
-        paymentMethod: paymentMethod,
-        createdAt: createdAt,
-        items: items,
-        itemIds: itemIds,
-      );
+      // 3. Enqueue a server-sync entry unless this is a local-only demo sale.
+      if (syncToServer) {
+        final payload = buildSalePushPayload(
+          saleId: saleId,
+          shiftId: shiftId,
+          storeId: storeId,
+          receiptNo: receiptNo,
+          subtotal: subtotal,
+          taxTotal: taxTotal,
+          discountTotal: discountTotal,
+          grandTotal: grandTotal,
+          paymentMethod: paymentMethod,
+          createdAt: createdAt,
+          items: items,
+          itemIds: itemIds,
+        );
 
-      _db.execute('''
-        INSERT INTO sync_outbox 
-        (entity_id, entity_type, operation, payload, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      ''', [
-        saleId,
-        'sale',
-        SyncOperationType.createSale.name,
-        payload,
-        SyncStatus.pending.name.toUpperCase(),
-        createdAt.millisecondsSinceEpoch,
-      ]);
+        _db.execute('''
+          INSERT INTO sync_outbox
+          (entity_id, entity_type, operation, payload, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        ''', [
+          saleId,
+          'sale',
+          SyncOperationType.createSale.name,
+          payload,
+          SyncStatus.pending.name.toUpperCase(),
+          createdAt.millisecondsSinceEpoch,
+        ]);
+      }
 
       return SaleCheckoutResult(saleId: saleId, receiptNo: receiptNo);
     });
+    await _db.flush();
+    return result;
   }
 
   /// Gets a sale by ID with its items.
   Future<SaleWithItems?> getSaleWithItems(String saleId) async {
-    final saleRows = _db.select('SELECT * FROM local_sales WHERE id = ?', [saleId]);
+    final saleRows =
+        _db.select('SELECT * FROM local_sales WHERE id = ?', [saleId]);
     if (saleRows.isEmpty) return null;
     final sale = _rowToSale(saleRows.first);
 
@@ -181,7 +187,8 @@ class SalesDao {
 
   /// Gets a sale by receipt number.
   Future<LocalSale?> getSaleByReceiptNo(String receiptNo) async {
-    final rows = _db.select('SELECT * FROM local_sales WHERE receipt_no = ?', [receiptNo]);
+    final rows = _db
+        .select('SELECT * FROM local_sales WHERE receipt_no = ?', [receiptNo]);
     if (rows.isEmpty) return null;
     return _rowToSale(rows.first);
   }
@@ -231,7 +238,8 @@ class SalesDao {
   }
 
   /// Gets all sales for a store.
-  Future<List<LocalSale>> getSalesForStore(String storeId, {int limit = 100}) async {
+  Future<List<LocalSale>> getSalesForStore(String storeId,
+      {int limit = 100}) async {
     final rows = _db.select('''
       SELECT * FROM local_sales 
       WHERE store_id = ?

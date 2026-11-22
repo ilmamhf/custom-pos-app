@@ -27,8 +27,8 @@ void main() {
   late AppDatabase db;
   late ProviderContainer container;
 
-  setUp(() {
-    db = AppDatabase.inMemory();
+  setUp(() async {
+    db = await AppDatabase.inMemory();
     container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(db),
@@ -108,6 +108,20 @@ void main() {
     expect(shifts, hasLength(1));
     expect((shifts.first as Map)['id'], stored.id);
     expect((shifts.first as Map)['openingCash'], 500000);
+  });
+
+  test('opens a local-only shift without queuing server sync', () async {
+    final notifier = container.read(shiftProvider.notifier);
+
+    await notifier.openShift(500000, syncToServer: false);
+
+    final state = container.read(shiftProvider);
+    expect(state.isOpen, isTrue);
+    expect(
+      await db.shiftsDao.getOpenShift(_store.id, _user.id),
+      isNotNull,
+    );
+    expect(await db.syncDao.getPendingEntries(), isEmpty);
   });
 
   test('rejects a negative opening cash', () async {

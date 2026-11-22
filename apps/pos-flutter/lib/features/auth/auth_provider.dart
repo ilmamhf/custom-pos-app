@@ -4,6 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../../core/network/dio_client.dart';
 
+/// Identifiers reserved for the browser-only offline demo.
+const demoUserId = 'demo-cashier';
+const demoStoreId = 'demo-store';
+
 /// Current user data.
 class User {
   const User({
@@ -59,6 +63,7 @@ class AuthState {
     this.stores = const [],
     this.selectedStore,
     this.isLoading = false,
+    this.isDemo = false,
     this.error,
   });
 
@@ -66,6 +71,7 @@ class AuthState {
   final List<UserStore> stores;
   final UserStore? selectedStore;
   final bool isLoading;
+  final bool isDemo;
   final String? error;
 
   AuthState copyWith({
@@ -73,6 +79,7 @@ class AuthState {
     List<UserStore>? stores,
     UserStore? selectedStore,
     bool? isLoading,
+    bool? isDemo,
     String? error,
     bool clearError = false,
     bool clearStore = false,
@@ -82,6 +89,7 @@ class AuthState {
       stores: stores ?? this.stores,
       selectedStore: clearStore ? null : (selectedStore ?? this.selectedStore),
       isLoading: isLoading ?? this.isLoading,
+      isDemo: isDemo ?? this.isDemo,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -135,6 +143,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Select active store.
   void selectStore(UserStore store) {
     state = state.copyWith(selectedStore: store, clearError: true);
+  }
+
+  /// Starts a local browser demo without creating server credentials.
+  void startDemoSession() {
+    const demoUser = User(
+      id: demoUserId,
+      name: 'Demo Cashier',
+      role: 'CASHIER',
+    );
+    const demoStore = UserStore(
+      id: demoStoreId,
+      name: 'Demo Store',
+      code: 'DEMO',
+      taxRateBps: 1100,
+    );
+    state = const AuthState(
+      user: demoUser,
+      stores: [demoStore],
+      selectedStore: demoStore,
+      isDemo: true,
+    );
   }
 
   /// Logout and clear tokens.

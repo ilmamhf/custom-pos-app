@@ -84,22 +84,25 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final auth = ref.watch(shiftAuthProvider);
     final shift = ref.watch(shiftProvider);
     final cart = ref.watch(cartProvider);
+    final compactAppBar = MediaQuery.sizeOf(context).width < 600;
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(auth.selectedStore?.name ?? 'POS'),
-            Text(
-              'Shift ${_shortId(shift.id)} • '
-              'Cashier ${auth.user?.name ?? '—'}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+        title: compactAppBar
+            ? Text(auth.selectedStore?.name ?? 'POS')
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(auth.selectedStore?.name ?? 'POS'),
+                  Text(
+                    'Shift ${_shortId(shift.id)} • '
+                    'Cashier ${auth.user?.name ?? '—'}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                   ),
-            ),
-          ],
-        ),
+                ],
+              ),
         actions: [
           IconButton(
             icon: const Icon(Icons.lock_clock),
@@ -244,8 +247,7 @@ class _CatalogPane extends ConsumerWidget {
               }
               return GridView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                gridDelegate:
-                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                   maxCrossAxisExtent: 240,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
@@ -293,41 +295,46 @@ class _ProductCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      product.name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: stockColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      outOfStock ? 'Out' : '${product.stockOnHand}',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: stockColor,
-                        fontWeight: FontWeight.w600,
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        product.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                     ),
-                  ),
-                ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: stockColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        outOfStock ? 'Out' : '${product.stockOnHand}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: stockColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 product.sku,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
-              const Spacer(),
+              const SizedBox(height: 4),
               Text(
                 formatIdr(product.effectivePrice),
                 style: theme.textTheme.titleLarge?.copyWith(
@@ -416,8 +423,9 @@ class _CartPanel extends ConsumerWidget {
                       onDecrement: () => ref
                           .read(cartProvider.notifier)
                           .decrement(line.productId),
-                      onRemove: () =>
-                          ref.read(cartProvider.notifier).remove(line.productId),
+                      onRemove: () => ref
+                          .read(cartProvider.notifier)
+                          .remove(line.productId),
                       onDiscount: () =>
                           _showItemDiscountDialog(context, ref, line),
                     );
@@ -671,7 +679,8 @@ class _CartTotals extends ConsumerWidget {
                   cart.isEmpty
                       ? 'Add items to charge'
                       : 'Charge ${formatIdr(cart.grandTotal)}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
@@ -779,6 +788,7 @@ class _CartBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SafeArea(
+      key: const Key('mobile-cart-bar'),
       child: Material(
         color: theme.colorScheme.primaryContainer,
         child: InkWell(
@@ -793,19 +803,30 @@ class _CartBar extends StatelessWidget {
                   child: const Icon(Icons.shopping_cart),
                 ),
                 const SizedBox(width: 16),
-                Text(
-                  'View cart',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onPrimaryContainer,
+                Expanded(
+                  child: Text(
+                    'View cart',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                Text(
-                  formatIdr(cart.grandTotal),
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.onPrimaryContainer,
+                const SizedBox(width: 12),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      formatIdr(cart.grandTotal),
+                      maxLines: 1,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
                   ),
                 ),
               ],

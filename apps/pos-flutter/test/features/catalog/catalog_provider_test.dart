@@ -10,7 +10,7 @@ void main() {
   late ProviderContainer container;
 
   setUp(() async {
-    db = AppDatabase.inMemory();
+    db = await AppDatabase.inMemory();
     container = ProviderContainer(
       overrides: [databaseProvider.overrideWithValue(db)],
     );

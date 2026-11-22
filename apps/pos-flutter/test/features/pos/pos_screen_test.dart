@@ -29,7 +29,7 @@ void main() {
   late LocalShift shift;
 
   setUp(() async {
-    db = AppDatabase.inMemory();
+    db = await AppDatabase.inMemory();
     await db.productsDao.upsertProduct(
       LocalProduct(
         id: 'prod-1',
@@ -54,8 +54,11 @@ void main() {
 
   tearDown(() => db.close());
 
-  Future<void> pumpPos(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1400, 900);
+  Future<void> pumpPos(
+    WidgetTester tester, {
+    Size viewport = const Size(1400, 900),
+  }) async {
+    tester.view.physicalSize = viewport;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -131,6 +134,44 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Charge Rp 39.960'), findsOneWidget);
+  });
+
+  testWidgets('mobile layout keeps the catalog and cart bar usable',
+      (tester) async {
+    await pumpPos(tester, viewport: const Size(412, 915));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('mobile-cart-bar')), findsOneWidget);
+    expect(find.text('View cart'), findsOneWidget);
+    expect(find.text('Kopi Susu'), findsOneWidget);
+
+    await tester.tap(find.text('Kopi Susu'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('mobile-cart-bar')), findsOneWidget);
+    expect(find.text('Rp 19.980'), findsOneWidget);
+  });
+
+  testWidgets('mobile payment dialog fits without overflowing', (tester) async {
+    await pumpPos(tester, viewport: const Size(412, 915));
+
+    await tester.tap(find.text('Kopi Susu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mobile-cart-bar')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.widgetWithText(FilledButton, 'Charge Rp 19.980'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Charge Rp 19.980'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Payment'), findsOneWidget);
+    expect(find.text('Cash'), findsOneWidget);
+    expect(find.text('QRIS'), findsOneWidget);
+    expect(find.text('Card'), findsOneWidget);
+    expect(find.textContaining('Complete Sale'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('empty cart cannot be charged', (tester) async {

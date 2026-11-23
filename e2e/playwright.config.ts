@@ -41,10 +41,14 @@ export default defineConfig({
   use: {
     baseURL: ADMIN_BASE_URL,
     // One WebM per test, embedded in the HTML report and exportable via
-    // `npm run videos:export`.
+    // `npm run videos:export`. Set E2E_SLOWMO to slow every action down for
+    // watchable recordings (see `npm run videos:record`).
     video: { mode: 'on', size: { width: 1280, height: 720 } },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: {
+      slowMo: Number(process.env.E2E_SLOWMO ?? 0),
+    },
   },
   projects: [
     {

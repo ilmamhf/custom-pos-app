@@ -8,6 +8,7 @@
     "test:admin": "node scripts/setup-db.mjs && playwright test --project=admin",
     "videos:export": "node scripts/export-videos.mjs",
     "videos:export:mp4": "node scripts/export-videos.mjs --mp4",
+    "videos:record": "node scripts/record.mjs",
     "install:browsers": "playwright install chromium"
   },
   "devDependencies": {

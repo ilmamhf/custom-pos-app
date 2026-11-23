@@ -60,6 +60,17 @@ npm run videos:export
 
 Output: `e2e/videos/<test-title>.webm` (ignored by git).
 
+### Watchable recordings (slow motion)
+
+```powershell
+cd e2e
+npm run videos:record            # slowMo = 250 ms per action
+$env:E2E_SLOWMO='500'; npm run videos:record
+```
+
+This resets the DB, runs the suite with slow motion, and exports the WebM
+recordings. Normal `npm test` runs at full speed (`E2E_SLOWMO` defaults to 0).
+
 MP4 is optional (for Safari/QuickTime or sharing outside a browser):
 
 ```powershell

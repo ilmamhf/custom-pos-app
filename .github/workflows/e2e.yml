@@ -262,7 +262,6 @@ jobs:
         run: |
           patrol test \
             --device chrome \
-            --target patrol_test/pos_critical_flow_test.dart \
             --web-headless \
             --web-video=on \
             --web-workers=1 \

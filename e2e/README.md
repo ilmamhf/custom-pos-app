@@ -108,10 +108,9 @@ $env:JWT_REFRESH_SECRET='e2e-refresh-secret-at-least-32-characters-long'
 $env:CORS_ORIGIN='*'
 node dist/main.js
 
-# 3. Run Patrol (headless, WebM video, 250 ms slow motion)
+# 3. Run Patrol (all tests, headless, WebM video, 250 ms slow motion)
 cd ../pos-flutter
 patrol test --device chrome `
-  --target patrol_test/pos_critical_flow_test.dart `
   --web-headless --web-video=on --web-slow-mo=250 `
   --dart-define=API_BASE_URL=http://localhost:3100/api/v1 `
   --web-results-dir=test-results `
@@ -140,9 +139,17 @@ flutter drive --driver=test_driver/integration_test.dart `
 
 ## What the Flutter flow covers
 
-Login → select BKS → open shift → verify the seeded catalog → change a price
-through the API → sync the POS → sale (cash) → server acknowledgment (sale +
-stock) → close shift → server acknowledgment.
+Patrol runs separate cases with one video each:
+
+- Cashier login, invalid login, store selection.
+- Shift open/continue, close, and server acknowledgment.
+- Store-scoped catalog, cart add/increment/decrement/remove, item and order
+  discounts.
+- Cash sale, sale-complete dialog, server acknowledgment (sale + stock).
+- Admin price change → POS sync → updated catalog price.
+
+Legacy fallback: `integration_test/pos_critical_flow_test.dart` via
+`flutter drive`.
 
 ## CI
 

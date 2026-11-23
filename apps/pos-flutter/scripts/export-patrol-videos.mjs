@@ -26,13 +26,21 @@ function walk(dir) {
 }
 
 const inputs = [
-  path.join(root, 'playwright-report', 'data'),
   path.join(root, 'test-results'),
+  path.join(root, 'playwright-report', 'data'),
 ];
 
-const videos = inputs
-  .flatMap((dir) => walk(dir))
-  .filter((file) => file.toLowerCase().endsWith('.webm'));
+function videosIn(dir) {
+  return walk(dir).filter((file) => file.toLowerCase().endsWith('.webm'));
+}
+
+// Prefer test-results (one directory per test, so we can name the video).
+// Fall back to the HTML report's data directory.
+let videos = videosIn(inputs[0]);
+let useTestDirs = videos.length > 0;
+if (videos.length === 0) {
+  videos = videosIn(inputs[1]);
+}
 
 if (videos.length === 0) {
   console.log('No Patrol videos found. Run `patrol test --web-video=on` first.');
@@ -82,9 +90,24 @@ if (wantMp4) {
 }
 
 videos.sort();
+const used = new Set();
 let mp4Count = 0;
 videos.forEach((video, index) => {
-  const slug = `video-${index + 1}`;
+  const rawSlug = useTestDirs
+    ? path.basename(path.dirname(video))
+    : `video-${index + 1}`;
+  const baseSlug =
+    rawSlug
+      .replace(/^tests-test-/, '')
+      .replace(/-[0-9a-f]{5}-/g, '-')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || `video-${index + 1}`;
+
+  let slug = baseSlug;
+  let suffix = 2;
+  while (used.has(slug)) slug = `${baseSlug}-${suffix++}`;
+  used.add(slug);
+
   const webmOut = path.join(outDir, `${slug}.webm`);
   copyFileSync(video, webmOut);
   console.log(`[webm] ${webmOut}`);

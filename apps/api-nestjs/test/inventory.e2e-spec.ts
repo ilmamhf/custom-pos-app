@@ -63,6 +63,11 @@ describe('Inventory & Atomic Transfers (E2E)', () => {
   });
 
   it('POST /api/v1/inventory/adjust - should restock product and write ledger row', async () => {
+    const before = await prisma.storeInventory.findUnique({
+      where: { storeId_productId: { storeId: bekasiStoreId, productId } },
+    });
+    const beforeStock = before?.stockOnHand ?? 0;
+
     const res = await request(app.getHttpServer())
       .post('/api/v1/inventory/adjust')
       .set('Authorization', `Bearer ${managerToken}`)
@@ -77,7 +82,7 @@ describe('Inventory & Atomic Transfers (E2E)', () => {
 
     expect(res.body.storeId).toBe(bekasiStoreId);
     expect(res.body.productId).toBe(productId);
-    expect(res.body.stockOnHand).toBeGreaterThanOrEqual(70);
+    expect(res.body.stockOnHand).toBe(beforeStock + 20);
 
     // Verify ledger row exists
     const ledger = await prisma.stockLedger.findFirst({

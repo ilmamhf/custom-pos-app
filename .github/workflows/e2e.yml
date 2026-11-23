@@ -178,7 +178,8 @@ jobs:
 
   pos-patrol:
     name: Flutter POS (Patrol web)
-    runs-on: ubuntu-latest
+    # Patrol's bundled Playwright does not support ubuntu-latest (26.04 yet).
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16

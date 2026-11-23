@@ -86,6 +86,15 @@ class ShiftScreen extends ConsumerWidget {
             if (shiftState.isOpen) ...[
               _ActiveShiftCard(shift: shiftState),
               const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: () => context.go('/pos'),
+                icon: const Icon(Icons.point_of_sale),
+                label: const Text('Continue to POS'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+              const SizedBox(height: 12),
               // Close Shift Button
               FilledButton.icon(
                 onPressed: shiftState.isClosing
@@ -124,7 +133,7 @@ class ShiftScreen extends ConsumerWidget {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Open Shift'),
         content: Form(
           key: formKey,
@@ -161,7 +170,7 @@ class ShiftScreen extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           FilledButton(
@@ -169,7 +178,7 @@ class ShiftScreen extends ConsumerWidget {
               if (!formKey.currentState!.validate()) return;
               final amount = int.parse(
                   openingCashController.text.replaceAll(RegExp(r'[^\d]'), ''));
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               await ref.read(shiftProvider.notifier).openShift(
                     amount,
                     syncToServer: !ref.read(authProvider).isDemo,
@@ -183,6 +192,8 @@ class ShiftScreen extends ConsumerWidget {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text(error)),
                 );
+              } else {
+                context.go('/pos');
               }
             },
             child: const Text('Open Shift'),

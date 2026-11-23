@@ -139,6 +139,23 @@ class AppDatabase {
     ''');
 
     _db.execute('''
+      CREATE TABLE IF NOT EXISTS local_sale_tenders (
+        id TEXT PRIMARY KEY NOT NULL,
+        sale_id TEXT NOT NULL,
+        payment_method TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        change INTEGER NOT NULL DEFAULT 0,
+        reference TEXT,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (sale_id) REFERENCES local_sales(id) ON DELETE CASCADE
+      )
+    ''');
+
+    _db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_local_sale_tenders_sale ON local_sale_tenders(sale_id)
+    ''');
+
+    _db.execute('''
       CREATE TABLE IF NOT EXISTS sync_outbox (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entity_id TEXT NOT NULL,
@@ -182,6 +199,11 @@ class AppDatabase {
       _migrateProductsToStoreScoped();
       _db.execute('PRAGMA user_version = 1');
     }
+
+    if (version < 2) {
+      _migrateAddSaleTenders();
+      _db.execute('PRAGMA user_version = 2');
+    }
   }
 
   /// v1: add `store_id` to `local_products` and rebuild the primary key as
@@ -221,6 +243,29 @@ class AppDatabase {
     _db.execute('DROP INDEX IF EXISTS idx_local_products_barcode');
     _db.execute('''
       CREATE INDEX IF NOT EXISTS idx_local_products_barcode ON local_products(store_id, barcode)
+    ''');
+  }
+
+  /// v2: add `local_sale_tenders` table for tender breakdown per payment method.
+  void _migrateAddSaleTenders() {
+    final columns = _db.select('PRAGMA table_info(local_sale_tenders)');
+    if (columns.isNotEmpty) return;
+
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS local_sale_tenders (
+        id TEXT PRIMARY KEY NOT NULL,
+        sale_id TEXT NOT NULL,
+        payment_method TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        change INTEGER NOT NULL DEFAULT 0,
+        reference TEXT,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (sale_id) REFERENCES local_sales(id) ON DELETE CASCADE
+      )
+    ''');
+
+    _db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_local_sale_tenders_sale ON local_sale_tenders(sale_id)
     ''');
   }
 

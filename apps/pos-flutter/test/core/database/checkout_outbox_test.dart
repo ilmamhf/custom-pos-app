@@ -61,6 +61,9 @@ void main() {
           lineTotal: 36000,
         ),
       ],
+      tenders: const [
+        SaleTenderInput(paymentMethod: PaymentMethod.cash, amount: 40000, change: 40),
+      ],
     );
   }
 
@@ -129,6 +132,9 @@ void main() {
             taxAmount: 1980,
             lineTotal: 18000,
           ),
+        ],
+        tenders: const [
+          SaleTenderInput(paymentMethod: PaymentMethod.cash, amount: 20000, change: 20),
         ],
       ),
       throwsA(isA<Exception>()),

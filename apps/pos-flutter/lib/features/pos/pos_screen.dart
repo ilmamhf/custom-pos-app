@@ -861,10 +861,10 @@ class _SaleCompleteDialog extends StatelessWidget {
           Text('Receipt ${result.sale.receiptNo}',
               style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
-          Text('Paid with ${result.method.name.toUpperCase()}'),
-          if (result.method == PaymentMethod.cash) ...[
+          Text('Paid with ${result.tenders.map((t) => t.paymentMethod.name.toUpperCase()).join(' + ')}'),
+          if (result.tenders.any((t) => t.paymentMethod == PaymentMethod.cash)) ...[
             const SizedBox(height: 8),
-            Text('Change ${formatIdr(result.change)}'),
+            Text('Change ${formatIdr(result.tenders.where((t) => t.paymentMethod == PaymentMethod.cash).fold(0, (sum, t) => sum + t.change))}'),
           ],
         ],
       ),

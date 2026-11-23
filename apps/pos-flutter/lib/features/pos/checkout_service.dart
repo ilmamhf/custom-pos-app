@@ -37,6 +37,7 @@ class CheckoutService {
     required String shiftId,
     required String cashierId,
     int? amountTendered,
+    List<SaleTenderInput>? tenders,
     DateTime? now,
     bool syncToServer = true,
   }) async {
@@ -76,6 +77,9 @@ class CheckoutService {
         ),
     ];
 
+    // Build tenders if not provided (legacy support)
+    final tendersToUse = tenders ?? _buildDefaultTenders(paymentMethod, cart.grandTotal, amountTendered);
+
     return _db.salesDao.completeSale(
       saleId: generateUuid(),
       shiftId: shiftId,
@@ -88,9 +92,19 @@ class CheckoutService {
       grandTotal: cart.grandTotal,
       paymentMethod: paymentMethod,
       items: items,
+      tenders: tendersToUse,
       syncToServer: syncToServer,
       createdAt: createdAt,
     );
+  }
+
+  List<SaleTenderInput> _buildDefaultTenders(PaymentMethod paymentMethod, int grandTotal, int? amountTendered) {
+    if (paymentMethod == PaymentMethod.cash) {
+      final tendered = amountTendered ?? grandTotal;
+      final change = tendered - grandTotal;
+      return [SaleTenderInput(paymentMethod: PaymentMethod.cash, amount: tendered, change: change)];
+    }
+    return [SaleTenderInput(paymentMethod: paymentMethod, amount: grandTotal)];
   }
 }
 

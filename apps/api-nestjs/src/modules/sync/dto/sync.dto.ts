@@ -99,6 +99,30 @@ export class SyncSaleItemDto {
   lineTotal?: number;
 }
 
+export class SyncSaleTenderDto {
+  @ApiProperty({ enum: PaymentMethod, example: PaymentMethod.CASH })
+  @IsEnum(PaymentMethod)
+  paymentMethod!: PaymentMethod;
+
+  @ApiProperty({ example: 40000, description: 'Amount tendered for this payment method (integer IDR)' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  amount!: number;
+
+  @ApiPropertyOptional({ example: 40, description: 'Change given (for cash); defaults to 0' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  change?: number;
+
+  @ApiPropertyOptional({ example: 'QRIS-REF-12345', description: 'External payment reference (QRIS/Card)' })
+  @IsOptional()
+  @IsString()
+  reference?: string;
+}
+
 export class SyncSaleDto {
   @ApiProperty({ example: 'e0000000-0000-0000-0000-000000000001' })
   @IsUUID('4')
@@ -143,6 +167,13 @@ export class SyncSaleDto {
   @ApiProperty({ enum: PaymentMethod, example: PaymentMethod.QRIS })
   @IsEnum(PaymentMethod)
   paymentMethod!: PaymentMethod;
+
+  @ApiPropertyOptional({ type: [SyncSaleTenderDto], description: 'Tender breakdown per payment method. Required for CASH, QRIS, CARD, SPLIT. For CASH: amount=tendered, change=change. For QRIS/Card: amount=grandTotal, reference=gateway ref.' })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SyncSaleTenderDto)
+  tenders?: SyncSaleTenderDto[];
 
   @ApiProperty({ example: '2026-11-21T14:10:00.000Z' })
   @IsISO8601()

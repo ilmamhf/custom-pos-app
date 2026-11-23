@@ -15,19 +15,30 @@ import 'cart_math.dart';
 import 'cart_provider.dart';
 import 'checkout_service.dart';
 
+/// Tender information for a payment method.
+class SaleTender {
+  const SaleTender({
+    required this.paymentMethod,
+    required this.amount,
+    this.change = 0,
+    this.reference,
+  });
+
+  final PaymentMethod paymentMethod;
+  final int amount;
+  final int change;
+  final String? reference;
+}
+
 /// Outcome of a completed payment.
 class PaymentResult {
   const PaymentResult({
     required this.sale,
-    required this.method,
-    required this.tendered,
-    required this.change,
+    required this.tenders,
   });
 
   final SaleCheckoutResult sale;
-  final PaymentMethod method;
-  final int tendered;
-  final int change;
+  final List<SaleTender> tenders;
 }
 
 /// Opens the payment dialog and returns the result, or null when cancelled.
@@ -62,6 +73,7 @@ class PaymentDialog extends ConsumerStatefulWidget {
 
 class _PaymentDialogState extends ConsumerState<PaymentDialog> {
   final _cashController = TextEditingController();
+  final _referenceController = TextEditingController();
   PaymentMethod _method = PaymentMethod.cash;
   bool _isProcessing = false;
   String? _error;
@@ -75,6 +87,7 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
   @override
   void dispose() {
     _cashController.dispose();
+    _referenceController.dispose();
     super.dispose();
   }
 
@@ -88,6 +101,34 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
   bool get _canConfirm =>
       !_isProcessing &&
       (_method != PaymentMethod.cash || _tendered >= widget.grandTotal);
+
+  List<SaleTender> get _tenders {
+    if (_method == PaymentMethod.cash) {
+      return [
+        SaleTender(
+          paymentMethod: PaymentMethod.cash,
+          amount: _tendered,
+          change: _change,
+        ),
+      ];
+    }
+    return [
+      SaleTender(
+        paymentMethod: _method,
+        amount: widget.grandTotal,
+        reference: _referenceController.text.trim().isEmpty ? null : _referenceController.text.trim(),
+      ),
+    ];
+  }
+
+  List<SaleTenderInput> get _tendersInput {
+    return _tenders.map((t) => SaleTenderInput(
+      paymentMethod: t.paymentMethod,
+      amount: t.amount,
+      change: t.change,
+      reference: t.reference,
+    )).toList();
+  }
 
   Future<void> _confirm() async {
     if (!_canConfirm) return;
@@ -115,6 +156,7 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
             shiftId: shift.id!,
             cashierId: user.id,
             amountTendered: _method == PaymentMethod.cash ? _tendered : null,
+            tenders: _tendersInput,
             syncToServer: !auth.isDemo,
           );
 
@@ -129,9 +171,7 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
       Navigator.of(context).pop(
         PaymentResult(
           sale: sale,
-          method: _method,
-          tendered: _tendered,
-          change: _change,
+          tenders: _tenders,
         ),
       );
     } on CheckoutException catch (e) {
@@ -275,6 +315,24 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
                       ),
                     ),
                   ],
+                ),
+              ] else ...[
+                TextField(
+                  controller: _referenceController,
+                  decoration: InputDecoration(
+                    labelText: 'Payment reference (optional)',
+                    hintText: 'QRIS transaction ID, Card auth code...',
+                    prefixIcon: const Icon(Icons.receipt_long),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Amount: ${formatIdr(widget.grandTotal)}',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
               ],
               if (_error != null) ...[

@@ -57,6 +57,7 @@ export class ShiftsService {
         sales: {
           include: {
             saleItems: true,
+            tenders: true,
           },
         },
       },
@@ -85,6 +86,12 @@ export class ShiftsService {
         paymentMethod: sale.paymentMethod,
         grandTotal: sale.grandTotal,
         saleItems: sale.saleItems,
+        tenders: (sale.tenders ?? []).map((t) => ({
+          paymentMethod: t.paymentMethod,
+          amount: t.amount,
+          change: t.change,
+          reference: t.reference,
+        })),
       })),
     );
     const actualCash = BigInt(dto.actualCash);

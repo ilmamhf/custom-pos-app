@@ -5,6 +5,7 @@ import 'dart:convert';
 import '../app_database.dart';
 import '../tables/local_sales.dart';
 import '../tables/local_sale_items.dart';
+import '../tables/local_sale_tenders.dart';
 import '../tables/sync_outbox.dart';
 import '../../utils/uuid_helper.dart';
 
@@ -27,6 +28,21 @@ class SaleItemInput {
   final int discountAmount;
   final int taxAmount;
   final int lineTotal;
+}
+
+/// Input for a sale tender during checkout.
+class SaleTenderInput {
+  const SaleTenderInput({
+    required this.paymentMethod,
+    required this.amount,
+    this.change = 0,
+    this.reference,
+  });
+
+  final PaymentMethod paymentMethod;
+  final int amount;
+  final int change;
+  final String? reference;
 }
 
 /// Result of a completed sale checkout.
@@ -60,7 +76,8 @@ class SalesDao {
   /// Completes a sale atomically:
   /// 1. Insert sale and sale items
   /// 2. Decrement product stock
-  /// 3. Optionally enqueue a server-sync outbox entry
+  /// 3. Insert tenders
+  /// 4. Optionally enqueue a server-sync outbox entry
   /// All in a single transaction.
   Future<SaleCheckoutResult> completeSale({
     required String saleId,
@@ -74,6 +91,7 @@ class SalesDao {
     required int grandTotal,
     required PaymentMethod paymentMethod,
     required List<SaleItemInput> items,
+    required List<SaleTenderInput> tenders,
     bool syncToServer = true,
     DateTime? createdAt,
   }) async {
@@ -132,7 +150,25 @@ class SalesDao {
         ''', [item.qty, storeId, item.productId]);
       }
 
-      // 3. Enqueue a server-sync entry unless this is a local-only demo sale.
+      // 3. Insert tenders.
+      for (final tender in tenders) {
+        final tenderId = generateUuid();
+        _db.execute('''
+          INSERT INTO local_sale_tenders 
+          (id, sale_id, payment_method, amount, change, reference, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', [
+          tenderId,
+          saleId,
+          tender.paymentMethod.name.toUpperCase(),
+          tender.amount,
+          tender.change,
+          tender.reference,
+          created.millisecondsSinceEpoch,
+        ]);
+      }
+
+      // 4. Enqueue a server-sync entry unless this is a local-only demo sale.
       if (syncToServer) {
         final payload = buildSalePushPayload(
           saleId: saleId,
@@ -147,6 +183,7 @@ class SalesDao {
           createdAt: created,
           items: items,
           itemIds: itemIds,
+          tenders: tenders,
         );
 
         _db.execute('''
@@ -204,22 +241,69 @@ class SalesDao {
     return rows.map(_rowToSale).toList();
   }
 
-  /// Cash expected in the drawer for a shift: cash sales minus proportional
+  /// Cash expected in the drawer for a shift: cash tenders minus proportional
   /// refunds, using each line's immutable line total (which includes the
   /// sale-time tax and discount) rather than a gross unit price.
   Future<int> getCashTotalForShift(String shiftId) async {
-    final rows = _db.select('''
-      SELECT COALESCE(SUM(
-        s.grand_total - COALESCE((
-          SELECT SUM((i.line_total * i.refunded_qty) / i.qty)
-          FROM local_sale_items i
-          WHERE i.sale_id = s.id AND i.qty > 0
-        ), 0)
-      ), 0) AS cash_total
+    // Get all sales for the shift with their tenders
+    final salesRows = _db.select('''
+      SELECT s.id, s.grand_total, s.payment_method,
+             t.payment_method as tender_method, t.amount, t.change
       FROM local_sales s
-      WHERE s.shift_id = ? AND s.payment_method = ?
-    ''', [shiftId, PaymentMethod.cash.name.toUpperCase()]);
-    return rows.first['cash_total'] as int;
+      LEFT JOIN local_sale_tenders t ON t.sale_id = s.id
+      WHERE s.shift_id = ?
+    ''', [shiftId]);
+
+    // Group tenders by sale
+    final Map<String, List<Map<String, Object?>>> tendersBySale = {};
+    for (final row in salesRows) {
+      final saleId = row['id'] as String;
+      final tenderMethod = row['tender_method'] as String?;
+      if (tenderMethod != null) {
+        tendersBySale.putIfAbsent(saleId, () => []).add({
+          'payment_method': tenderMethod,
+          'amount': row['amount'] as int,
+          'change': row['change'] as int,
+        });
+      }
+    }
+
+    // Calculate cash total using tenders
+    int cashTotal = 0;
+    for (final row in salesRows) {
+      final saleId = row['id'] as String;
+      final tenders = tendersBySale[saleId] ?? [];
+      
+      if (tenders.isEmpty) {
+        // Legacy fallback: check payment_method
+        if (row['payment_method'] == PaymentMethod.cash.name.toUpperCase()) {
+          cashTotal += row['grand_total'] as int;
+        }
+      } else {
+        // Use tender records
+        for (final tender in tenders) {
+          if (tender['payment_method'] == PaymentMethod.cash.name.toUpperCase()) {
+            cashTotal += (tender['amount'] as int) - (tender['change'] as int);
+          }
+        }
+      }
+    }
+
+    // Subtract refunds for cash tenders
+    final refundRows = _db.select('''
+      SELECT i.sale_id, SUM((i.line_total * i.refunded_qty) / i.qty) AS refunded
+      FROM local_sale_items i
+      JOIN local_sales s ON s.id = i.sale_id
+      LEFT JOIN local_sale_tenders t ON t.sale_id = s.id AND t.payment_method = ?
+      WHERE s.shift_id = ? AND i.refunded_qty > 0
+      GROUP BY i.sale_id
+    ''', [PaymentMethod.cash.name.toUpperCase(), shiftId]);
+
+    for (final row in refundRows) {
+      cashTotal -= row['refunded'] as int;
+    }
+
+    return cashTotal;
   }
 
   /// Quantities of products sold locally whose sale has not been acknowledged
@@ -349,6 +433,28 @@ class SalesDao {
     );
   }
 
+  LocalSaleTender _rowToSaleTender(Map<String, Object?> row) {
+    return LocalSaleTender(
+      id: row['id'] as String,
+      saleId: row['sale_id'] as String,
+      paymentMethod: _paymentMethodFromString(row['payment_method'] as String),
+      amount: row['amount'] as int,
+      change: row['change'] as int,
+      reference: row['reference'] as String?,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
+    );
+  }
+
+  /// Gets tenders for a sale.
+  Future<List<LocalSaleTender>> getTendersForSale(String saleId) async {
+    final rows = _db.select('''
+      SELECT * FROM local_sale_tenders 
+      WHERE sale_id = ? 
+      ORDER BY created_at ASC
+    ''', [saleId]);
+    return rows.map(_rowToSaleTender).toList();
+  }
+
   PaymentMethod _paymentMethodFromString(String value) {
     return PaymentMethod.values.firstWhere(
       (e) => e.name.toUpperCase() == value.toUpperCase(),
@@ -378,6 +484,7 @@ String buildSalePushPayload({
   required DateTime createdAt,
   required List<SaleItemInput> items,
   required List<String> itemIds,
+  required List<SaleTenderInput> tenders,
 }) {
   assert(items.length == itemIds.length);
   return jsonEncode({
@@ -408,6 +515,15 @@ String buildSalePushPayload({
               'discountAmount': items[i].discountAmount,
               'taxAmount': items[i].taxAmount,
               'lineTotal': items[i].lineTotal,
+            }
+        ],
+        'tenders': [
+          for (final tender in tenders)
+            {
+              'paymentMethod': tender.paymentMethod.name.toUpperCase(),
+              'amount': tender.amount,
+              'change': tender.change,
+              'reference': tender.reference,
             }
         ],
       }

@@ -4,12 +4,17 @@ import {
   SyncPushDto,
   SyncPullQueryDto,
   SyncShiftDto,
+  SyncSaleTenderDto,
 } from './dto/sync.dto';
 import { PaymentMethod, SaleStatus, StockLedgerReason } from '@prisma/client';
 import { calculateTaxBps } from '../../common/utils/currency.util';
 import { expectedCashForSales } from '../../common/utils/shift-cash.util';
 import { AuthService } from '../auth/auth.service';
 import { SalesService } from '../sales/sales.service';
+
+function generateUuid(): string {
+  return crypto.randomUUID();
+}
 
 @Injectable()
 export class SyncService {
@@ -243,6 +248,26 @@ export class SyncService {
               lines.map((l) => l.taxable),
             );
 
+            // Build tender records from client-provided tenders or derive from paymentMethod
+            const tendersInput = sale.tenders ?? [];
+            const tendersData = tendersInput.length > 0
+              ? tendersInput.map((t) => ({
+                  id: generateUuid(),
+                  paymentMethod: t.paymentMethod,
+                  amount: BigInt(t.amount),
+                  change: BigInt(t.change ?? 0),
+                  reference: t.reference ?? null,
+                }))
+              : [
+                  {
+                    id: generateUuid(),
+                    paymentMethod: sale.paymentMethod,
+                    amount: grandTotal,
+                    change: sale.paymentMethod === PaymentMethod.CASH ? 0n : 0n,
+                    reference: null,
+                  },
+                ];
+
             await tx.sale.create({
               data: {
                 id: sale.id,
@@ -272,6 +297,9 @@ export class SyncService {
                     lineTotal: line.taxable + taxShares[index],
                     refundedAmount: 0n,
                   })),
+                },
+                tenders: {
+                  create: tendersData,
                 },
               },
             });
@@ -362,7 +390,7 @@ export class SyncService {
       try {
         const shift = await this.prisma.shift.findUnique({
           where: { id: shiftId },
-          include: { sales: { include: { saleItems: true } } },
+          include: { sales: { include: { saleItems: true, tenders: true } } },
         });
         if (!shift) {
           throw new Error('Shift disappeared before close');
@@ -375,6 +403,12 @@ export class SyncService {
               paymentMethod: sale.paymentMethod,
               grandTotal: sale.grandTotal,
               saleItems: sale.saleItems,
+              tenders: (sale.tenders ?? []).map((t) => ({
+                paymentMethod: t.paymentMethod,
+                amount: t.amount,
+                change: t.change,
+                reference: t.reference,
+              })),
             })),
           );
           const actualCash =

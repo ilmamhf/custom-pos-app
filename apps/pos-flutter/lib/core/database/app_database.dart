@@ -218,6 +218,7 @@ class AppDatabase {
 
     _db.execute('DROP TABLE local_products');
     _db.execute('ALTER TABLE local_products_migrated RENAME TO local_products');
+    _db.execute('DROP INDEX IF EXISTS idx_local_products_barcode');
     _db.execute('''
       CREATE INDEX IF NOT EXISTS idx_local_products_barcode ON local_products(store_id, barcode)
     ''');

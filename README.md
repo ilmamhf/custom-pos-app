@@ -330,4 +330,12 @@ npm run prisma:migrate:deploy
 
 ## Current integration boundaries
 
-The local setup supports the main login, catalog, shift, sale, inventory, report, and basic sync paths. Known gaps remain in Flutter offline-refund synchronization, closed-shift synchronization, partial per-record sync failure handling, and the React Admin user-store response mapping. Use a cashier sale for the initial live path, not a refund or closed-shift workflow.
+The local setup supports login, catalog, shift, sale, refund, inventory, report,
+and sync paths, including offline refunds with a manager authorization grant,
+closed-shift synchronization, per-record sync failure handling, and the React
+Admin user-store mapping.
+
+Remaining gaps are tracked in `docs/audit/2026-11-22/remediation-log.md`:
+Bluetooth receipt-printer hardware integration, major dependency upgrades
+(Prisma 7, Zod 4, React Router 7), a real payment-provider/settlement model, and
+rate limiting before internet exposure.

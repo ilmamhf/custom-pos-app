@@ -82,14 +82,19 @@ if (videos.length === 0) {
 }
 
 mkdirSync(outDir, { recursive: true });
+const wantMp4 = process.argv.includes('--mp4');
 const ffmpeg = findFfmpeg();
-const canMp4 = ffmpeg ? supportsH264(ffmpeg) : false;
+const canMp4 = wantMp4 && ffmpeg ? supportsH264(ffmpeg) : false;
 
-console.log(
-  ffmpeg
-    ? `Using ffmpeg: ${ffmpeg}${canMp4 ? '' : ' (no libx264; MP4 skipped)'}`
-    : 'No ffmpeg found; exporting WebM only'
-);
+if (wantMp4) {
+  console.log(
+    ffmpeg
+      ? `Using ffmpeg: ${ffmpeg}${canMp4 ? '' : ' (no libx264; MP4 skipped)'}`
+      : 'No ffmpeg found; MP4 skipped'
+  );
+} else {
+  console.log('Exporting WebM only (pass --mp4 to also transcode H.264)');
+}
 
 const used = new Set();
 let exported = 0;

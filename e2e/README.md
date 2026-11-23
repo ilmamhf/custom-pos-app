@@ -47,23 +47,28 @@ Reports: `e2e/playwright-report` (ignored by git).
 
 ## Recordings and export
 
-Every test records a 1280×720 WebM at
-`e2e/test-results/<test-title>/video.webm`; the HTML report embeds it.
+Every test records a 1280×720 **WebM** at
+`e2e/test-results/<test-title>/video.webm`; the HTML report embeds and plays it
+directly (Chromium/Firefox/Edge, Android, VLC).
 
-Export all recordings into one flat folder (and MP4 when a full ffmpeg is
-available):
+Export all recordings into one flat folder:
 
 ```powershell
 cd e2e
-npm install --no-save ffmpeg-static   # optional: provides libx264
 npm run videos:export
 ```
 
-Output: `e2e/videos/<test-title>.webm` and `.mp4` (ignored by git).
+Output: `e2e/videos/<test-title>.webm` (ignored by git).
 
-- Playwright's bundled ffmpeg is WebM/VP9-only, so MP4 conversion needs a full
-  ffmpeg (`ffmpeg-static`, an `ffmpeg` on `PATH`, or `FFMPEG_PATH`).
-- Videos are also retained as CI artifacts (`playwright-test-results`).
+MP4 is optional (for Safari/QuickTime or sharing outside a browser):
+
+```powershell
+npm install --no-save ffmpeg-static   # provides libx264
+npm run videos:export:mp4
+```
+
+Playwright's bundled ffmpeg is WebM/VP9-only, so the `:mp4` variant needs a full
+ffmpeg (`ffmpeg-static`, an `ffmpeg` on `PATH`, or `FFMPEG_PATH`).
 
 ## Flutter POS
 

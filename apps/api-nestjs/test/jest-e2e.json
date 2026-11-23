@@ -6,6 +6,9 @@
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
+  "transformIgnorePatterns": [
+    "node_modules/(?!(.*\\.mjs$|@nestjs/axios))"
+  ],
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/../src/$1"
   }

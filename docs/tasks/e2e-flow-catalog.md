@@ -2,8 +2,8 @@
 
 - **Branch:** `test/e2e-critical-flows`
 - **Strategy:** hybrid — Playwright for React Admin and cross-application checks;
-  Flutter `integration_test` for the POS UI. API calls are used for setup,
-  assertions, and data seeding.
+  Patrol web for the POS UI (legacy `flutter drive` integration_test kept as a
+  fallback). API calls are used for setup, assertions, and data seeding.
 - **Rule:** every flow is listed; only **Critical** flows are automated.
   High/Medium/Low are documented as follow-ups.
 - **Environment:** dedicated `pos_e2e` database, real API, real browsers.
@@ -56,31 +56,31 @@ Status legend: `AUTO` = automated in this change · `DOC` = listed, not automate
 
 | # | Flow | Severity | Status | Harness |
 |---|---|---|---|---|
-| F1 | Login with valid cashier | Critical | AUTO | Flutter integration |
+| F1 | Login with valid cashier | Critical | AUTO | Patrol (web) |
 | F2 | Invalid login | High | DOC | — |
 | F3 | Offline demo session | Low | DOC | — |
 | F4 | Logout clears PIN cache | High | DOC | — |
-| F5 | Select store | Critical | AUTO | Flutter integration |
+| F5 | Select store | Critical | AUTO | Patrol (web) |
 | F6 | Change store | Medium | DOC | — |
-| F7 | Open shift | Critical | AUTO | Flutter integration |
-| F8 | Close shift + variance | Critical | AUTO | Flutter integration |
+| F7 | Open shift | Critical | AUTO | Patrol (web) |
+| F8 | Close shift + variance | Critical | AUTO | Patrol (web) |
 | F9 | No POS without an open shift | Critical | AUTO (route guard unit) | Flutter test |
 | F10 | Shift syncs open/close to server | Critical | AUTO (asserted by API) | Flutter integration |
-| F11 | Catalog is store-scoped | Critical | AUTO | Flutter integration |
+| F11 | Catalog is store-scoped | Critical | AUTO | Patrol (web) |
 | F12 | Search by name | High | DOC | — |
 | F13 | Barcode/SKU exact add | High | DOC | — |
-| F14 | Add/increment/decrement/remove cart lines | Critical | AUTO | Flutter integration |
+| F14 | Add/increment/decrement/remove cart lines | Critical | AUTO | Patrol (web) |
 | F15 | Item discount | High | DOC | — |
 | F16 | Order discount | High | DOC | — |
-| F17 | Price change from Admin appears after sync | Critical | AUTO | Flutter integration |
+| F17 | Price change from Admin appears after sync | Critical | AUTO | Patrol (web) |
 | F18 | Out-of-stock/low-stock display | Medium | DOC | — |
-| F19 | Cash sale | Critical | AUTO | Flutter integration |
+| F19 | Cash sale | Critical | AUTO | Patrol (web) |
 | F20 | QRIS / Card sale | High | DOC | — |
 | F21 | Cash below total blocked | High | DOC | — |
 | F22 | Empty cart blocked | High | DOC | — |
 | F23 | Atomic local sale + outbox | Critical | AUTO (unit) | Flutter test |
-| F24 | Sale syncs to server | Critical | AUTO | Flutter integration |
-| F25 | Sale complete dialog | Critical | AUTO | Flutter integration |
+| F24 | Sale syncs to server | Critical | AUTO | Patrol (web) |
+| F25 | Sale complete dialog | Critical | AUTO | Patrol (web) |
 | F26 | Refund from POS UI | Critical | **GAP** | — |
 | F27 | Manager PIN online | Critical | DOC | — |
 | F28 | Offline PIN grant | Medium | DOC | — |
@@ -89,7 +89,7 @@ Status legend: `AUTO` = automated in this change · `DOC` = listed, not automate
 | F31 | Sync badge states | Medium | DOC | — |
 | F32 | Manual sync | High | DOC | — |
 | F33 | Retry failed outbox entries | High | DOC | — |
-| F34 | Catalog/price/cart pull | Critical | AUTO | Flutter integration |
+| F34 | Catalog/price/cart pull | Critical | AUTO | Patrol (web) |
 | F35 | Offline → reconnect | High | DOC | — |
 
 ## Cross-application
@@ -126,8 +126,9 @@ refund correctness is covered by the API e2e suite and Admin refund flow.
 **Playwright (React + cross-app):** A1, A6, A7, A8, A9, A13, A15, A16, A18,
 A20, A21, A23, A25, A27, A29, X1, X2, X6.
 
-**Flutter integration_test:** F1, F5, F7, F8, F10, F11, F14, F17, F19, F24,
-F25, F34 (plus existing unit tests for F9/F23).
+**Patrol (Flutter web):** F1, F5, F7, F8, F10, F11, F14, F17, F19, F24,
+F25, F34 (plus existing unit tests for F9/F23). Web video via `--web-video`;
+slow motion via `--web-slow-mo`.
 
 ## Test data strategy
 

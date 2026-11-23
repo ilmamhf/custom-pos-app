@@ -75,7 +75,7 @@ jobs:
           retention-days: 7
 
   pos-e2e:
-    name: Flutter POS (integration_test)
+    name: Flutter POS (legacy flutter drive)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -173,5 +173,119 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: api-log
+          path: apps/api-nestjs/api.log
+          retention-days: 7
+
+  pos-patrol:
+    name: Flutter POS (Patrol web)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: pos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos -d pos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: 'true'
+      E2E_DATABASE_URL: postgresql://pos:pos@localhost:5432/pos_e2e?schema=public
+      DATABASE_URL: postgresql://pos:pos@localhost:5432/pos_e2e?schema=public
+      NODE_ENV: test
+      PORT: '3100'
+      JWT_ACCESS_SECRET: e2e-access-secret-at-least-32-characters-long
+      JWT_REFRESH_SECRET: e2e-refresh-secret-at-least-32-characters-long
+      CORS_ORIGIN: '*'
+      SWAGGER_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            apps/api-nestjs/package-lock.json
+            e2e/package-lock.json
+      - name: Install API
+        working-directory: apps/api-nestjs
+        run: npm ci
+      - name: Generate Prisma client
+        working-directory: apps/api-nestjs
+        run: npx prisma generate
+      - name: Install e2e DB helper
+        working-directory: e2e
+        run: npm ci --include=dev
+      - name: Reset and seed e2e database
+        working-directory: e2e
+        run: node scripts/setup-db.mjs
+      - name: Build API
+        working-directory: apps/api-nestjs
+        run: npm run build
+      - name: Start API
+        working-directory: apps/api-nestjs
+        run: |
+          nohup node dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3100/api/v1/health > /dev/null; then
+              echo "API ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API failed to start"
+          cat api.log
+          exit 1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Patrol CLI
+        run: |
+          flutter pub global activate patrol_cli
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+      - name: Flutter pub get
+        working-directory: apps/pos-flutter
+        run: flutter pub get
+      - name: Install Chromium system dependencies for Playwright
+        run: sudo npx --yes playwright install-deps chromium
+      - name: Patrol doctor
+        working-directory: apps/pos-flutter
+        run: patrol doctor
+      - name: Run Patrol web test
+        working-directory: apps/pos-flutter
+        run: |
+          patrol test \
+            --device chrome \
+            --target patrol_test/pos_critical_flow_test.dart \
+            --web-headless \
+            --web-video=on \
+            --web-workers=1 \
+            --dart-define=API_BASE_URL=http://localhost:3100/api/v1 \
+            --web-results-dir=test-results \
+            --web-report-dir=playwright-report
+      - name: Export Patrol videos
+        if: always()
+        working-directory: apps/pos-flutter
+        run: node scripts/export-patrol-videos.mjs
+      - name: Upload Patrol report and videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: patrol-report
+          path: |
+            apps/pos-flutter/playwright-report
+            apps/pos-flutter/patrol_videos
+          retention-days: 7
+      - name: Upload API log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: patrol-api-log
           path: apps/api-nestjs/api.log
           retention-days: 7

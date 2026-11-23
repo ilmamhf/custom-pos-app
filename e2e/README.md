@@ -81,7 +81,17 @@ npm run videos:export:mp4
 Playwright's bundled ffmpeg is WebM/VP9-only, so the `:mp4` variant needs a full
 ffmpeg (`ffmpeg-static`, an `ffmpeg` on `PATH`, or `FFMPEG_PATH`).
 
-## Flutter POS
+## Flutter POS (Patrol)
+
+Primary harness: **Patrol web** (Playwright under the hood). The legacy
+`flutter drive` suite remains in `integration_test/` as a fallback.
+
+Prerequisites: Node, Flutter, and the Patrol CLI.
+
+```powershell
+flutter pub global activate patrol_cli
+# Windows: add %LOCALAPPDATA%\Pub\Cache\bin to PATH
+```
 
 ```powershell
 # 1. Reset/seed the e2e database
@@ -98,11 +108,30 @@ $env:JWT_REFRESH_SECRET='e2e-refresh-secret-at-least-32-characters-long'
 $env:CORS_ORIGIN='*'
 node dist/main.js
 
-# 3. Start chromedriver (matching your Chrome version)
-chromedriver --port=4444
-
-# 4. Run the flow
+# 3. Run Patrol (headless, WebM video, 250 ms slow motion)
 cd ../pos-flutter
+patrol test --device chrome `
+  --target patrol_test/pos_critical_flow_test.dart `
+  --web-headless --web-video=on --web-slow-mo=250 `
+  --dart-define=API_BASE_URL=http://localhost:3100/api/v1 `
+  --web-results-dir=test-results `
+  --web-report-dir=playwright-report
+```
+
+- Report: `apps/pos-flutter/playwright-report/index.html` (video embedded).
+- Video: `--web-video=on` (or `retain-on-failure`); `--web-slow-mo` makes it
+  watchable. Patrol auto-installs Node/Playwright deps on first run.
+- Export recordings:
+  ```powershell
+  cd apps/pos-flutter
+  node scripts/export-patrol-videos.mjs          # WebM -> patrol_videos/
+  node scripts/export-patrol-videos.mjs --mp4    # optional, needs a full ffmpeg
+  ```
+
+Legacy fallback (requires chromedriver on port 4444):
+
+```powershell
+cd apps/pos-flutter
 flutter drive --driver=test_driver/integration_test.dart `
   --target=integration_test/pos_critical_flow_test.dart `
   -d chrome --headless --browser-name=chrome --web-port=7357 `
@@ -117,6 +146,6 @@ stock) → close shift → server acknowledgment.
 
 ## CI
 
-[`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs both jobs with
-a Postgres service, builds the API, installs Playwright/chromedriver, and runs
-the suites.
+[`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml) runs three jobs with
+Postgres services: React Admin (Playwright), Flutter POS (Patrol web), and a
+legacy Flutter drive job retained until Patrol is verified in CI.

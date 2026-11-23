@@ -83,6 +83,29 @@ void main() {
     expect(cart.state.taxRateBps, 1100);
   });
 
+  test('applyPrices adopts the synced price and clamps the item discount', () {
+    cart.addProduct(product('p1', price: 18000));
+    cart.setItemDiscount('p1', 15000);
+    expect(cart.state.lines.single.itemDiscount, 15000);
+
+    cart.applyPrices({'p1': 12000});
+
+    final line = cart.state.lines.single;
+    expect(line.unitPrice, 12000);
+    expect(line.itemDiscount, 12000);
+    expect(line.net, 0);
+  });
+
+  test('applyPrices ignores products that are not in the cart or unchanged', () {
+    cart.addProduct(product('p1', price: 18000));
+
+    cart.applyPrices({'p2': 5000});
+    expect(cart.state.lines.single.unitPrice, 18000);
+
+    cart.applyPrices({'p1': 18000});
+    expect(cart.state.lines.single.unitPrice, 18000);
+  });
+
   test('remove deletes only the requested line', () {
     cart.addProduct(product('p1'));
     cart.addProduct(product('p2', name: 'Roti'));

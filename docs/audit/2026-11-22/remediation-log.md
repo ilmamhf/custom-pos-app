@@ -314,3 +314,32 @@ so the API contract was not the problem.
   **Retry now** action that resets the retry cap.
 - Observation: two open shifts existed for `kasir1@toko.id`. Close the unused
   one to keep drawer reconciliation clean.
+
+## Live-test finding 4 (2026-11-23) — admin price change not visible in POS
+
+A price override changed in React Admin did reach the server, and
+`GET /sync/pull?since=...` returned `effectivePrice: 12000` for TEH-001. The
+client did not reflect it because:
+
+1. The periodic sync only ran when the outbox had pending/failed work, so an
+   idle POS never pulled catalog changes.
+2. A pull upserted the local product row but never invalidated the
+   `catalogProvider`, so the product grid kept its previous query result.
+3. Cart lines capture the price when added; they were not refreshed, and the
+   server recomputes sale prices, so a stale cart would disagree with the
+   receipt.
+4. The synced/syncing cloud icon used `colorScheme.primary`, which is the same
+   dark green as the AppBar background — effectively invisible.
+
+Fixes:
+
+- The periodic tick now always pulls catalog deltas even with an empty outbox.
+- After every successful pull, `catalogProvider` is invalidated and cart lines
+  re-read their authoritative price (`CartNotifier.applyPrices`), re-clamping
+  item discounts.
+- Sync badge uses the AppBar foreground for synced/syncing and high-contrast
+  amber/red for pending/offline/failed.
+- Added cart price-refresh tests.
+
+There is no server push channel; changes propagate within the timer interval
+(~30s), immediately on the badge tap, or after a sale/shift/refund trigger.

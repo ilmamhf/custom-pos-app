@@ -95,6 +95,35 @@ class CartNotifier extends StateNotifier<CartState> {
     );
   }
 
+  /// Applies authoritative store prices after a sync pull.
+  ///
+  /// Lines keep their quantity and item discount (re-clamped to the new
+  /// gross). This matters because the server recomputes sale prices from the
+  /// catalog, so a stale cart price would otherwise disagree with the receipt.
+  void applyPrices(Map<String, int> prices) {
+    var changed = false;
+    final lines = state.lines.map((line) {
+      final price = prices[line.productId];
+      if (price == null || price == line.unitPrice) return line;
+
+      changed = true;
+      final maxDiscount = price * line.qty;
+      final discount =
+          line.itemDiscount > maxDiscount ? maxDiscount : line.itemDiscount;
+      return CartLine(
+        productId: line.productId,
+        name: line.name,
+        unitPrice: price,
+        qty: line.qty,
+        itemDiscount: discount,
+      );
+    }).toList();
+
+    if (changed) {
+      state = state.copyWith(lines: lines);
+    }
+  }
+
   /// Sets the order discount in basis points (0–10000).
   void setOrderDiscountBps(int bps) {
     state = state.copyWith(orderDiscountBps: bps.clamp(0, 10000));

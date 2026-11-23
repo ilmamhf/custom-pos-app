@@ -16,6 +16,8 @@ import '../../core/database/database_provider.dart';
 import '../../core/database/tables/local_products.dart';
 import '../../core/database/tables/sync_outbox.dart';
 import '../auth/auth_provider.dart';
+import '../catalog/catalog_provider.dart';
+import '../pos/cart_provider.dart';
 import '../shift/shift_provider.dart';
 
 /// Current sync status for the UI badge.
@@ -109,12 +111,9 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
 
   Future<void> _maybeSync() async {
     if (_db == null || !state.isOnline || state.isSyncing) return;
-    // Counts are only refreshed on init/connectivity/sync completion. A new
-    // outbox row (sale, shift, refund) must be visible before gating, or the
-    // timer would skip syncing forever on a stale zero count.
-    await _refreshCounts();
-    if (!mounted || _disposed) return;
-    if ((state.pendingCount + state.failedCount) == 0) return;
+    // Always pull on the periodic tick: catalog/price changes from the admin
+    // arrive even when the outbox is empty. Push is a no-op when there is
+    // nothing queued.
     await syncNow();
   }
 
@@ -317,6 +316,26 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
 
       await db.productsDao.upsertProducts(products);
     }
+
+    // The catalog grid reads the local DB through a FutureProvider; invalidate
+    // it after every successful pull so admin price/catalog changes appear
+    // without restarting the app. Also re-read the price of any cart line so
+    // the cashier's total matches what the server will recompute at checkout.
+    final cart = ref.read(cartProvider);
+    if (cart.lines.isNotEmpty) {
+      final prices = <String, int>{};
+      for (final line in cart.lines) {
+        final product = await db.productsDao.getProductById(
+          line.productId,
+          storeId: storeId,
+        );
+        if (product != null) {
+          prices[line.productId] = product.effectivePrice;
+        }
+      }
+      ref.read(cartProvider.notifier).applyPrices(prices);
+    }
+    ref.invalidate(catalogProvider);
 
     // Persist a durable per-store cursor so deltas survive restarts.
     final serverTime = data['serverTime'];

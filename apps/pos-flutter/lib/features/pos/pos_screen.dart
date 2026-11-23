@@ -890,24 +890,29 @@ class _SyncStatusBadge extends ConsumerWidget {
     IconData icon;
     String tooltip;
 
+    // The app bar is dark green; the synced/syncing icon must use the app-bar
+    // foreground (white), not primary green, or it becomes invisible.
+    final onBar =
+        theme.appBarTheme.foregroundColor ?? theme.colorScheme.onPrimary;
+
     if (!status.isOnline) {
-      color = theme.colorScheme.error;
+      color = const Color(0xFFFF8A80);
       icon = Icons.cloud_off;
       tooltip = 'Offline';
     } else if (status.isSyncing) {
-      color = theme.colorScheme.primary;
+      color = onBar;
       icon = Icons.sync;
       tooltip = 'Syncing...';
     } else if (status.pendingCount > 0) {
-      color = theme.colorScheme.tertiary;
+      color = const Color(0xFFFFD54F);
       icon = Icons.cloud_upload;
       tooltip = '${status.pendingCount} pending';
     } else if (status.failedCount > 0) {
-      color = theme.colorScheme.error;
+      color = const Color(0xFFFF8A80);
       icon = Icons.error;
       tooltip = '${status.failedCount} failed';
     } else {
-      color = theme.colorScheme.primary;
+      color = onBar;
       icon = Icons.cloud_done;
       tooltip = 'Synced';
     }

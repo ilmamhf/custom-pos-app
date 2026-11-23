@@ -1,34 +1,21 @@
-/// DAO for local products table.
+/// DAO for the store-scoped local products table.
 
 import '../app_database.dart';
 import '../tables/local_products.dart';
 
 /// Data access object for LocalProducts.
+///
+/// Most methods accept an optional [storeId]. When supplied, the query is
+/// restricted to that store; the catalog always supplies the active store so
+/// two stores with different overrides never share a row.
 class ProductsDao {
   ProductsDao(this._db);
 
   final AppDatabase _db;
 
-  /// Inserts or updates a product (upsert by primary key).
+  /// Inserts or updates a product (upsert by `(store_id, id)`).
   Future<void> upsertProduct(LocalProduct product) async {
-    _db.transaction(() {
-      _db.execute('''
-        INSERT OR REPLACE INTO local_products 
-        (id, sku, barcode, name, effective_price, stock_on_hand, is_active, updated_at, last_synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ''', [
-        product.id,
-        product.sku,
-        product.barcode,
-        product.name,
-        product.effectivePrice,
-        product.stockOnHand,
-        product.isActive ? 1 : 0,
-        product.updatedAt.millisecondsSinceEpoch,
-        product.lastSyncedAt?.millisecondsSinceEpoch,
-      ]);
-    });
-    await _db.flush();
+    await upsertProducts([product]);
   }
 
   /// Inserts or updates multiple products in a batch.
@@ -37,9 +24,10 @@ class ProductsDao {
       for (final product in products) {
         _db.execute('''
           INSERT OR REPLACE INTO local_products 
-          (id, sku, barcode, name, effective_price, stock_on_hand, is_active, updated_at, last_synced_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (store_id, id, sku, barcode, name, effective_price, stock_on_hand, is_active, updated_at, last_synced_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', [
+          product.storeId,
           product.id,
           product.sku,
           product.barcode,
@@ -55,132 +43,202 @@ class ProductsDao {
     await _db.flush();
   }
 
-  /// Gets a product by ID.
-  Future<LocalProduct?> getProductById(String id) async {
-    final rows = _db.select('SELECT * FROM local_products WHERE id = ?', [id]);
+  /// Gets a product by ID (optionally scoped to a store).
+  Future<LocalProduct?> getProductById(String id, {String? storeId}) async {
+    final rows = storeId == null
+        ? _db.select('SELECT * FROM local_products WHERE id = ? LIMIT 1', [id])
+        : _db.select(
+            'SELECT * FROM local_products WHERE store_id = ? AND id = ?',
+            [storeId, id],
+          );
     if (rows.isEmpty) return null;
     return _rowToProduct(rows.first);
   }
 
-  /// Gets a product by SKU.
-  Future<LocalProduct?> getProductBySku(String sku) async {
-    final rows = _db.select('SELECT * FROM local_products WHERE sku = ?', [sku]);
+  /// Gets a product by SKU within a store.
+  Future<LocalProduct?> getProductBySku(String sku, {String? storeId}) async {
+    final rows = storeId == null
+        ? _db.select('SELECT * FROM local_products WHERE sku = ? LIMIT 1', [sku])
+        : _db.select(
+            'SELECT * FROM local_products WHERE store_id = ? AND sku = ?',
+            [storeId, sku],
+          );
     if (rows.isEmpty) return null;
     return _rowToProduct(rows.first);
   }
 
-  /// Gets a product by barcode.
-  Future<LocalProduct?> getProductByBarcode(String barcode) async {
-    final rows = _db.select(
-      'SELECT * FROM local_products WHERE barcode = ? AND is_active = 1',
-      [barcode],
-    );
+  /// Gets an active product by barcode within a store.
+  Future<LocalProduct?> getProductByBarcode(
+    String barcode, {
+    String? storeId,
+  }) async {
+    final rows = storeId == null
+        ? _db.select(
+            'SELECT * FROM local_products WHERE barcode = ? AND is_active = 1 LIMIT 1',
+            [barcode],
+          )
+        : _db.select(
+            'SELECT * FROM local_products WHERE store_id = ? AND barcode = ? AND is_active = 1',
+            [storeId, barcode],
+          );
     if (rows.isEmpty) return null;
     return _rowToProduct(rows.first);
   }
 
-  /// Searches products by name or SKU (case-insensitive).
-  Future<List<LocalProduct>> searchProducts(String query, {int limit = 50}) async {
+  /// Searches active products by name or SKU (case-insensitive).
+  Future<List<LocalProduct>> searchProducts(
+    String query, {
+    int limit = 50,
+    String? storeId,
+  }) async {
     final lowerQuery = query.toLowerCase();
-    final rows = _db.select('''
+    final args = <Object?>['%$lowerQuery%', '%$lowerQuery%'];
+    var sql = '''
       SELECT * FROM local_products 
       WHERE is_active = 1 
       AND (LOWER(name) LIKE ? OR LOWER(sku) LIKE ?)
-      ORDER BY name ASC
-      LIMIT ?
-    ''', ['%$lowerQuery%', '%$lowerQuery%', limit]);
-    return rows.map(_rowToProduct).toList();
+    ''';
+    if (storeId != null) {
+      sql += ' AND store_id = ?';
+      args.add(storeId);
+    }
+    sql += ' ORDER BY name ASC LIMIT ?';
+    args.add(limit);
+    return _db.select(sql, args).map(_rowToProduct).toList();
   }
 
-  /// Gets all active products.
-  Future<List<LocalProduct>> getAllActiveProducts({int limit = 200}) async {
-    final rows = _db.select('''
-      SELECT * FROM local_products 
-      WHERE is_active = 1 
-      ORDER BY name ASC
-      LIMIT ?
-    ''', [limit]);
-    return rows.map(_rowToProduct).toList();
+  /// Gets all active products for a store.
+  Future<List<LocalProduct>> getAllActiveProducts({
+    int limit = 200,
+    String? storeId,
+  }) async {
+    final args = <Object?>[];
+    var sql = 'SELECT * FROM local_products WHERE is_active = 1';
+    if (storeId != null) {
+      sql += ' AND store_id = ?';
+      args.add(storeId);
+    }
+    sql += ' ORDER BY name ASC LIMIT ?';
+    args.add(limit);
+    return _db.select(sql, args).map(_rowToProduct).toList();
   }
 
-  /// Gets products with low stock (<= threshold).
-  Future<List<LocalProduct>> getLowStockProducts(int threshold) async {
-    final rows = _db.select('''
-      SELECT * FROM local_products 
-      WHERE is_active = 1 AND stock_on_hand <= ?
-      ORDER BY stock_on_hand ASC
-    ''', [threshold]);
-    return rows.map(_rowToProduct).toList();
+  /// Gets products with low stock (<= threshold) for a store.
+  Future<List<LocalProduct>> getLowStockProducts(
+    int threshold, {
+    String? storeId,
+  }) async {
+    final args = <Object?>[threshold];
+    var sql = 'SELECT * FROM local_products WHERE is_active = 1 AND stock_on_hand <= ?';
+    if (storeId != null) {
+      sql += ' AND store_id = ?';
+      args.add(storeId);
+    }
+    sql += ' ORDER BY stock_on_hand ASC';
+    return _db.select(sql, args).map(_rowToProduct).toList();
   }
 
-  /// Gets products with negative stock (for reconciliation).
-  Future<List<LocalProduct>> getNegativeStockProducts() async {
-    final rows = _db.select('''
-      SELECT * FROM local_products 
-      WHERE is_active = 1 AND stock_on_hand < 0
-      ORDER BY stock_on_hand ASC
-    ''');
-    return rows.map(_rowToProduct).toList();
+  /// Gets products with negative stock for a store.
+  Future<List<LocalProduct>> getNegativeStockProducts({String? storeId}) async {
+    final args = <Object?>[];
+    var sql = 'SELECT * FROM local_products WHERE is_active = 1 AND stock_on_hand < 0';
+    if (storeId != null) {
+      sql += ' AND store_id = ?';
+      args.add(storeId);
+    }
+    sql += ' ORDER BY stock_on_hand ASC';
+    return _db.select(sql, args).map(_rowToProduct).toList();
   }
 
-  /// Decrements stock for a product (used during checkout).
-  /// Allows negative stock locally.
-  Future<int> decrementStock(String productId, int quantity) async {
-    final currentStock = _db.select('SELECT stock_on_hand FROM local_products WHERE id = ?', [productId]).first['stock_on_hand'] as int;
-    return _db.update(
-      'local_products',
-      {'stock_on_hand': currentStock - quantity},
-      'id = ?',
-      [productId],
+  /// Decrements stock for a product (used during checkout). Allows negative.
+  Future<int> decrementStock(
+    String productId,
+    int quantity, {
+    String? storeId,
+  }) async {
+    final where = storeId == null ? 'id = ?' : 'store_id = ? AND id = ?';
+    final args = storeId == null
+        ? <Object?>[quantity, productId]
+        : <Object?>[quantity, storeId, productId];
+    _db.execute(
+      'UPDATE local_products SET stock_on_hand = stock_on_hand - ? WHERE $where',
+      args,
     );
+    return 0;
   }
 
   /// Increments stock for a product (used for refunds/restocks).
-  Future<int> incrementStock(String productId, int quantity) async {
-    final currentStock = _db.select('SELECT stock_on_hand FROM local_products WHERE id = ?', [productId]).first['stock_on_hand'] as int;
-    return _db.update(
-      'local_products',
-      {'stock_on_hand': currentStock + quantity},
-      'id = ?',
-      [productId],
+  Future<int> incrementStock(
+    String productId,
+    int quantity, {
+    String? storeId,
+  }) async {
+    final where = storeId == null ? 'id = ?' : 'store_id = ? AND id = ?';
+    final args = storeId == null
+        ? <Object?>[quantity, productId]
+        : <Object?>[quantity, storeId, productId];
+    _db.execute(
+      'UPDATE local_products SET stock_on_hand = stock_on_hand + ? WHERE $where',
+      args,
     );
+    return 0;
   }
 
   /// Sets stock to a specific value.
-  Future<int> setStock(String productId, int stock) async {
+  Future<int> setStock(String productId, int stock, {String? storeId}) async {
+    if (storeId == null) {
+      return _db.update('local_products', {'stock_on_hand': stock}, 'id = ?', [productId]);
+    }
     return _db.update(
       'local_products',
       {'stock_on_hand': stock},
-      'id = ?',
-      [productId],
+      'store_id = ? AND id = ?',
+      [storeId, productId],
     );
   }
 
-  /// Gets the last synced timestamp for delta sync.
-  Future<DateTime?> getLastSyncedAt() async {
-    final rows = _db.select('''
-      SELECT MAX(last_synced_at) as max_synced FROM local_products
-    ''');
+  /// Gets the last synced timestamp for a store's catalog.
+  Future<DateTime?> getLastSyncedAt({String? storeId}) async {
+    final rows = storeId == null
+        ? _db.select('SELECT MAX(last_synced_at) AS max_synced FROM local_products')
+        : _db.select(
+            'SELECT MAX(last_synced_at) AS max_synced FROM local_products WHERE store_id = ?',
+            [storeId],
+          );
     if (rows.isEmpty || rows.first['max_synced'] == null) return null;
     return DateTime.fromMillisecondsSinceEpoch(rows.first['max_synced'] as int);
   }
 
   /// Updates last synced timestamp for a product.
-  Future<void> updateLastSynced(String productId, DateTime timestamp) async {
-    _db.execute('''
-      UPDATE local_products 
-      SET last_synced_at = ?
-      WHERE id = ?
-    ''', [timestamp.millisecondsSinceEpoch, productId]);
+  Future<void> updateLastSynced(
+    String productId,
+    DateTime timestamp, {
+    String? storeId,
+  }) async {
+    if (storeId == null) {
+      _db.execute(
+        'UPDATE local_products SET last_synced_at = ? WHERE id = ?',
+        [timestamp.millisecondsSinceEpoch, productId],
+      );
+    } else {
+      _db.execute(
+        'UPDATE local_products SET last_synced_at = ? WHERE store_id = ? AND id = ?',
+        [timestamp.millisecondsSinceEpoch, storeId, productId],
+      );
+    }
   }
 
-  /// Deletes all products (for full resync).
-  Future<int> deleteAll() async {
-    return _db.delete('local_products', '1=1', []);
+  /// Deletes all products (for full resync), optionally for one store.
+  Future<int> deleteAll({String? storeId}) async {
+    if (storeId == null) {
+      return _db.delete('local_products', '1=1', []);
+    }
+    return _db.delete('local_products', 'store_id = ?', [storeId]);
   }
 
   LocalProduct _rowToProduct(Map<String, Object?> row) {
     return LocalProduct(
+      storeId: row['store_id'] as String,
       id: row['id'] as String,
       sku: row['sku'] as String,
       barcode: row['barcode'] as String?,

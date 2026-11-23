@@ -1,15 +1,20 @@
 /// Local products table for offline-first product catalog.
 /// Synced from server via GET /sync/pull.
+///
+/// Identity is `(store_id, id)`: the same master product has a different
+/// effective price and stock in each store.
 
 import 'package:drift/drift.dart';
 
-/// Represents a product in the local catalog.
-/// Contains effective price (with store override) and stock on hand.
+/// Represents a product in the local catalog for one store.
 class LocalProducts extends Table {
+  /// Store UUID this catalog row belongs to.
+  TextColumn get storeId => text().withLength(min: 1, max: 36)();
+
   /// Primary key - product UUID from server.
   TextColumn get id => text().withLength(min: 36, max: 36)();
 
-  /// Product SKU (unique).
+  /// Product SKU (unique within a store).
   TextColumn get sku => text().withLength(min: 1, max: 50)();
 
   /// Barcode for scanning (nullable).
@@ -19,11 +24,9 @@ class LocalProducts extends Table {
   TextColumn get name => text().withLength(min: 1, max: 150)();
 
   /// Effective price for this store (base_price or price_override).
-  /// Stored as integer IDR (smallest currency unit).
   IntColumn get effectivePrice => integer()();
 
-  /// Current stock on hand for this store.
-  /// Can go negative locally (offline sales allowed).
+  /// Current stock on hand for this store. Can go negative locally.
   IntColumn get stockOnHand => integer().withDefault(const Constant(0))();
 
   /// Whether the product is active.
@@ -36,12 +39,13 @@ class LocalProducts extends Table {
   DateTimeColumn get lastSyncedAt => dateTime().nullable()();
 
   @override
-  Set<Column> get primaryKey => {id};
+  Set<Column> get primaryKey => {storeId, id};
 }
 
 /// Data class for LocalProducts rows.
 class LocalProduct {
   const LocalProduct({
+    this.storeId = 'store-1',
     required this.id,
     required this.sku,
     this.barcode,
@@ -53,6 +57,7 @@ class LocalProduct {
     this.lastSyncedAt,
   });
 
+  final String storeId;
   final String id;
   final String sku;
   final String? barcode;
@@ -68,6 +73,7 @@ class LocalProduct {
       identical(this, other) ||
       (other is LocalProduct &&
           runtimeType == other.runtimeType &&
+          storeId == other.storeId &&
           id == other.id &&
           sku == other.sku &&
           barcode == other.barcode &&
@@ -80,6 +86,7 @@ class LocalProduct {
 
   @override
   int get hashCode => Object.hash(
+        storeId,
         id,
         sku,
         barcode,
@@ -93,5 +100,5 @@ class LocalProduct {
 
   @override
   String toString() =>
-      'LocalProduct(id: $id, sku: $sku, name: $name, price: $effectivePrice, stock: $stockOnHand)';
+      'LocalProduct(store: $storeId, id: $id, sku: $sku, name: $name, price: $effectivePrice, stock: $stockOnHand)';
 }

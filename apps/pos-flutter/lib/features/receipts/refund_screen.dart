@@ -16,6 +16,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/database/database_provider.dart';
 import '../../core/database/daos/sales_dao.dart';
 import '../../core/utils/currency.dart';
+import '../../core/utils/uuid_helper.dart';
 import '../auth/pin_dialog.dart';
 import '../shift/shift_provider.dart';
 
@@ -61,7 +62,10 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
     var total = 0;
     for (final entry in _refundQty.entries) {
       final item = _sale!.items.firstWhere((i) => i.id == entry.key);
-      total += item.unitPrice * entry.value;
+      if (item.qty <= 0) continue;
+      // Refund the exact proportional share of the immutable line total
+      // (which already includes sale-time discount and tax).
+      total += (item.lineTotal * entry.value) ~/ item.qty;
     }
     return total;
   }
@@ -80,8 +84,18 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
       storeId: ref.read(shiftAuthProvider).selectedStore?.id,
     );
 
-    if (!verified) {
+    if (!mounted) return;
+    if (verified == null || !verified.authorized) {
       setState(() => _error = 'Manager PIN verification required');
+      return;
+    }
+
+    // The server accepts a signed grant as proof of authorization for a
+    // queued refund; a bare local hash is not sufficient.
+    final grant = verified.grant;
+    if (grant == null || grant.isEmpty) {
+      setState(() => _error =
+          'Offline refund authorization unavailable. Reconnect and verify the PIN once.');
       return;
     }
 
@@ -100,6 +114,12 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
       if (store == null || user == null || shift.id == null) {
         throw Exception('Invalid session');
       }
+      if (_sale!.sale.storeId != store.id) {
+        throw Exception('Selected store does not own this sale');
+      }
+
+      final refundId = generateUuid();
+      final createdAt = DateTime.now().toUtc();
 
       db.transaction(() {
         // Update sale items and stock
@@ -116,12 +136,12 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
             WHERE id = ?
           ''', [refundQty, entry.key]);
 
-          // Increment stock
+          // Increment stock, scoped to the store that owns this sale.
           db.execute('''
             UPDATE local_products
             SET stock_on_hand = stock_on_hand + ?
-            WHERE id = ?
-          ''', [refundQty, item.productId]);
+            WHERE store_id = ? AND id = ?
+          ''', [refundQty, _sale!.sale.storeId, item.productId]);
         }
 
         // Update sale status
@@ -135,25 +155,27 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
           WHERE id = ?
         ''', [newStatus, _sale!.sale.id]);
 
-        // Enqueue refund for sync (reuse createSale op type for now, future: createRefund)
+        // Enqueue a first-class refund command with a signed authorization
+        // grant and a stable command id used as the idempotency key.
         final payload = jsonEncode({
-          'storeId': store.id,
+          'storeId': _sale!.sale.storeId,
           'shifts': <Object>[],
-          'sales': [
+          'sales': <Object>[],
+          'refunds': [
             {
-              'id': _sale!.sale.id,
-              'shiftId': shift.id!,
-              'refund': {
-                'items': [
-                  for (final entry in _refundQty.entries)
-                    if (entry.value > 0)
-                      {
-                        'saleItemId': entry.key,
-                        'refundQty': entry.value,
-                      }
-                ],
-                'totalRefund': _totalRefundAmount,
-              },
+              'id': refundId,
+              'saleId': _sale!.sale.id,
+              'authorizationToken': grant,
+              'reason': 'Offline refund from POS',
+              'items': [
+                for (final entry in _refundQty.entries)
+                  if (entry.value > 0)
+                    {
+                      'saleItemId': entry.key,
+                      'refundQty': entry.value,
+                    }
+              ],
+              'createdAt': createdAt.toIso8601String(),
             }
           ],
         });
@@ -163,12 +185,12 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
           (entity_id, entity_type, operation, payload, status, created_at)
           VALUES (?, ?, ?, ?, ?, ?)
         ''', [
-          _sale!.sale.id,
-          'sale',
+          refundId,
+          'refund',
           'createRefund',
           payload,
           'PENDING',
-          DateTime.now().toUtc().millisecondsSinceEpoch,
+          createdAt.millisecondsSinceEpoch,
         ]);
       });
       await db.flush();

@@ -32,6 +32,12 @@ Future<void> main() async {
         dioProvider.overrideWithValue(dio),
         authInterceptorProvider.overrideWithValue(authInterceptor),
         secureStorageProvider.overrideWithValue(secureStorage),
+        // The catalog always follows the cashier's selected store.
+        activeStoreIdProvider.overrideWith(
+          (ref) =>
+              ref.watch(authProvider.select((s) => s.selectedStore?.id)) ??
+              defaultLocalStoreId,
+        ),
       ],
       child: const PosApp(),
     ),

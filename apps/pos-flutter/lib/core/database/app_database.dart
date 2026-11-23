@@ -19,7 +19,9 @@ class AppDatabase {
 
   /// Private constructor - use open() or inMemory()
   AppDatabase._(this._db) {
+    _db.execute('PRAGMA foreign_keys = ON');
     _createTables();
+    _migrate();
     _initDaos();
   }
 
@@ -40,20 +42,23 @@ class AppDatabase {
   void _createTables() {
     _db.execute('''
       CREATE TABLE IF NOT EXISTS local_products (
-        id TEXT PRIMARY KEY NOT NULL,
-        sku TEXT NOT NULL UNIQUE,
+        store_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        sku TEXT NOT NULL,
         barcode TEXT,
         name TEXT NOT NULL,
         effective_price INTEGER NOT NULL,
         stock_on_hand INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
         updated_at INTEGER NOT NULL,
-        last_synced_at INTEGER
+        last_synced_at INTEGER,
+        PRIMARY KEY (store_id, id),
+        UNIQUE (store_id, sku)
       )
     ''');
 
     _db.execute('''
-      CREATE INDEX IF NOT EXISTS idx_local_products_barcode ON local_products(barcode)
+      CREATE INDEX IF NOT EXISTS idx_local_products_barcode ON local_products(store_id, barcode)
     ''');
 
     _db.execute('''
@@ -92,7 +97,8 @@ class AppDatabase {
         payment_method TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'COMPLETED',
         created_at INTEGER NOT NULL,
-        last_synced_at INTEGER
+        last_synced_at INTEGER,
+        FOREIGN KEY (shift_id) REFERENCES local_shifts(id)
       )
     ''');
 
@@ -120,7 +126,8 @@ class AppDatabase {
         refunded_qty INTEGER NOT NULL DEFAULT 0,
         discount_amount INTEGER NOT NULL DEFAULT 0,
         tax_amount INTEGER NOT NULL DEFAULT 0,
-        line_total INTEGER NOT NULL
+        line_total INTEGER NOT NULL,
+        FOREIGN KEY (sale_id) REFERENCES local_sales(id) ON DELETE CASCADE
       )
     ''');
 
@@ -155,6 +162,64 @@ class AppDatabase {
     ''');
     _db.execute('''
       CREATE INDEX IF NOT EXISTS idx_sync_outbox_created ON sync_outbox(created_at)
+    ''');
+
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS local_sync_state (
+        store_id TEXT PRIMARY KEY NOT NULL,
+        cursor TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Ordered, idempotent schema migrations keyed by `PRAGMA user_version`.
+  void _migrate() {
+    final versionRow = _db.select('PRAGMA user_version').first;
+    final version = (versionRow['user_version'] as int?) ?? 0;
+
+    if (version < 1) {
+      _migrateProductsToStoreScoped();
+      _db.execute('PRAGMA user_version = 1');
+    }
+  }
+
+  /// v1: add `store_id` to `local_products` and rebuild the primary key as
+  /// `(store_id, id)`. Existing rows are assigned to the `'store-1'` legacy
+  /// bucket so no local data is discarded.
+  void _migrateProductsToStoreScoped() {
+    final columns = _db.select('PRAGMA table_info(local_products)');
+    final hasStoreId = columns.any((c) => c['name'] == 'store_id');
+    if (hasStoreId) return;
+
+    _db.execute('''
+      CREATE TABLE local_products_migrated (
+        store_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        sku TEXT NOT NULL,
+        barcode TEXT,
+        name TEXT NOT NULL,
+        effective_price INTEGER NOT NULL,
+        stock_on_hand INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        updated_at INTEGER NOT NULL,
+        last_synced_at INTEGER,
+        PRIMARY KEY (store_id, id),
+        UNIQUE (store_id, sku)
+      )
+    ''');
+
+    _db.execute('''
+      INSERT INTO local_products_migrated
+        (store_id, id, sku, barcode, name, effective_price, stock_on_hand, is_active, updated_at, last_synced_at)
+      SELECT 'store-1', id, sku, barcode, name, effective_price, stock_on_hand, is_active, updated_at, last_synced_at
+      FROM local_products
+    ''');
+
+    _db.execute('DROP TABLE local_products');
+    _db.execute('ALTER TABLE local_products_migrated RENAME TO local_products');
+    _db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_local_products_barcode ON local_products(store_id, barcode)
     ''');
   }
 

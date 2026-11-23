@@ -106,10 +106,12 @@ class AuthInterceptor extends Interceptor {
     await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
   }
 
-  /// Clears tokens on logout.
+  /// Clears tokens and any cached offline PIN authorization on logout.
   Future<void> clearTokens() async {
     await _secureStorage.delete(key: _accessTokenKey);
     await _secureStorage.delete(key: _refreshTokenKey);
+    // The PIN cache can authorize refunds; it must not survive logout.
+    await _secureStorage.delete(key: 'offline_pin_cache');
   }
 
   /// Gets current access token.
@@ -171,6 +173,17 @@ class RetryInterceptor extends Interceptor {
   }
 
   bool _shouldRetry(DioException err) {
+    // Blindly replaying a non-idempotent write can duplicate stock movements
+    // or refunds. Only safe methods (or requests carrying an explicit
+    // Idempotency-Key) may be retried.
+    final method = err.requestOptions.method.toUpperCase();
+    final hasIdempotencyKey = err.requestOptions.headers.keys
+        .any((key) => key.toLowerCase() == 'idempotency-key');
+    final isSafe =
+        const {'GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'}.contains(method) ||
+            hasIdempotencyKey;
+    if (!isSafe) return false;
+
     // Retry on network errors, timeouts, and 5xx errors
     if (err.type == DioExceptionType.connectionTimeout ||
         err.type == DioExceptionType.receiveTimeout ||

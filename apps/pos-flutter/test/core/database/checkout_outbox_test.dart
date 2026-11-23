@@ -5,12 +5,23 @@ import 'package:pos_flutter/core/database/app_database.dart';
 import 'package:pos_flutter/core/database/daos/sales_dao.dart';
 import 'package:pos_flutter/core/database/tables/local_products.dart';
 import 'package:pos_flutter/core/database/tables/local_sales.dart';
+import 'package:pos_flutter/core/database/tables/local_shifts.dart';
 
 void main() {
   late AppDatabase db;
 
   setUp(() async {
     db = await AppDatabase.inMemory();
+    await db.shiftsDao.openShift(
+      LocalShift(
+        id: 'shift-1',
+        storeId: 'store-1',
+        userId: 'user-1',
+        openedAt: DateTime.utc(2026, 11, 22, 8),
+        openingCash: 0,
+      ),
+      syncToServer: false,
+    );
     await db.productsDao.upsertProduct(
       LocalProduct(
         id: 'prod-1',

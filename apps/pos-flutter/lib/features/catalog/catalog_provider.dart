@@ -13,16 +13,18 @@ final productQueryProvider = StateProvider<String>((ref) => '');
 /// product; otherwise a case-insensitive name/SKU search is used.
 final catalogProvider = FutureProvider<List<LocalProduct>>((ref) async {
   final db = ref.watch(databaseProvider);
+  final storeId = ref.watch(activeStoreIdProvider);
   final query = ref.watch(productQueryProvider).trim();
   if (query.isEmpty) {
-    return db.productsDao.getAllActiveProducts();
+    return db.productsDao.getAllActiveProducts(storeId: storeId);
   }
 
-  final byBarcode = await db.productsDao.getProductByBarcode(query);
+  final byBarcode =
+      await db.productsDao.getProductByBarcode(query, storeId: storeId);
   if (byBarcode != null) return [byBarcode];
 
-  final bySku = await db.productsDao.getProductBySku(query);
+  final bySku = await db.productsDao.getProductBySku(query, storeId: storeId);
   if (bySku != null && bySku.isActive) return [bySku];
 
-  return db.productsDao.searchProducts(query);
+  return db.productsDao.searchProducts(query, storeId: storeId);
 });

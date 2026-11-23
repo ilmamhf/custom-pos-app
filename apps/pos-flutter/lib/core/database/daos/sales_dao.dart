@@ -75,9 +75,10 @@ class SalesDao {
     required PaymentMethod paymentMethod,
     required List<SaleItemInput> items,
     bool syncToServer = true,
+    DateTime? createdAt,
   }) async {
     final result = _db.transactionResult<SaleCheckoutResult>(() {
-      final createdAt = DateTime.now().toUtc();
+      final created = (createdAt ?? DateTime.now()).toUtc();
 
       // 1. Insert sale
       _db.execute('''
@@ -96,7 +97,7 @@ class SalesDao {
         grandTotal,
         paymentMethod.name.toUpperCase(),
         SaleStatus.completed.name.toUpperCase(),
-        createdAt.millisecondsSinceEpoch,
+        created.millisecondsSinceEpoch,
       ]);
 
       // 2. Insert sale items and decrement stock. Item IDs are generated once
@@ -123,12 +124,12 @@ class SalesDao {
           item.lineTotal,
         ]);
 
-        // Decrement stock (allows negative)
+        // Decrement stock for this store only (allows negative).
         _db.execute('''
           UPDATE local_products 
           SET stock_on_hand = stock_on_hand - ?
-          WHERE id = ?
-        ''', [item.qty, item.productId]);
+          WHERE store_id = ? AND id = ?
+        ''', [item.qty, storeId, item.productId]);
       }
 
       // 3. Enqueue a server-sync entry unless this is a local-only demo sale.
@@ -143,7 +144,7 @@ class SalesDao {
           discountTotal: discountTotal,
           grandTotal: grandTotal,
           paymentMethod: paymentMethod,
-          createdAt: createdAt,
+          createdAt: created,
           items: items,
           itemIds: itemIds,
         );
@@ -158,7 +159,7 @@ class SalesDao {
           SyncOperationType.createSale.name,
           payload,
           SyncStatus.pending.name.toUpperCase(),
-          createdAt.millisecondsSinceEpoch,
+          created.millisecondsSinceEpoch,
         ]);
       }
 
@@ -203,21 +204,40 @@ class SalesDao {
     return rows.map(_rowToSale).toList();
   }
 
-  /// Cash expected in the drawer for a shift: sum of cash sales minus cash
-  /// already refunded (refunded quantity × unit price).
+  /// Cash expected in the drawer for a shift: cash sales minus proportional
+  /// refunds, using each line's immutable line total (which includes the
+  /// sale-time tax and discount) rather than a gross unit price.
   Future<int> getCashTotalForShift(String shiftId) async {
     final rows = _db.select('''
       SELECT COALESCE(SUM(
         s.grand_total - COALESCE((
-          SELECT SUM(i.refunded_qty * i.unit_price)
+          SELECT SUM((i.line_total * i.refunded_qty) / i.qty)
           FROM local_sale_items i
-          WHERE i.sale_id = s.id
+          WHERE i.sale_id = s.id AND i.qty > 0
         ), 0)
       ), 0) AS cash_total
       FROM local_sales s
       WHERE s.shift_id = ? AND s.payment_method = ?
     ''', [shiftId, PaymentMethod.cash.name.toUpperCase()]);
     return rows.first['cash_total'] as int;
+  }
+
+  /// Quantities of products sold locally whose sale has not been acknowledged
+  /// by the server (outbox still PENDING or FAILED). A pull subtracts these
+  /// from authoritative server stock so an unsynced sale is not erased.
+  Future<Map<String, int>> getPendingStockDelta(String storeId) async {
+    final rows = _db.select('''
+      SELECT i.product_id AS product_id, SUM(i.qty) AS qty
+      FROM local_sale_items i
+      JOIN local_sales s ON s.id = i.sale_id
+      JOIN sync_outbox o ON o.entity_type = 'sale' AND o.entity_id = s.id
+      WHERE s.store_id = ? AND o.status IN ('PENDING', 'FAILED')
+      GROUP BY i.product_id
+    ''', [storeId]);
+    return {
+      for (final row in rows)
+        row['product_id'] as String: (row['qty'] as int?) ?? 0,
+    };
   }
 
   /// Number of sales already recorded for [storeId] on the local calendar day

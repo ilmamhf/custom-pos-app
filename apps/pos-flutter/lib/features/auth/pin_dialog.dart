@@ -7,14 +7,14 @@ import '../auth/auth_provider.dart';
 import 'pin_service.dart';
 
 /// Shows a PIN verification dialog for manager overrides.
-/// Returns true if PIN is verified, false otherwise.
-Future<bool> showPinDialog(
+/// Returns the successful verification (including an offline grant) or null.
+Future<PinVerification?> showPinDialog(
   BuildContext context, {
   required String title,
   required String message,
   String? storeId,
 }) async {
-  final result = await showDialog<bool>(
+  return showDialog<PinVerification>(
     context: context,
     barrierDismissible: false,
     builder: (context) => _PinDialog(
@@ -23,7 +23,6 @@ Future<bool> showPinDialog(
       storeId: storeId,
     ),
   );
-  return result ?? false;
 }
 
 /// PIN dialog widget.
@@ -66,11 +65,12 @@ class _PinDialogState extends ConsumerState<_PinDialog> {
     final result = await ref.read(pinServiceProvider).verify(
           _pinController.text,
           storeId: widget.storeId ?? authState.selectedStore?.id,
+          userId: authState.user?.id,
         );
 
     if (!mounted) return;
     if (result.authorized) {
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(result);
       return;
     }
     setState(() {
@@ -156,7 +156,7 @@ class _PinDialogState extends ConsumerState<_PinDialog> {
                     child: OutlinedButton(
                       onPressed: _isLoading
                           ? null
-                          : () => Navigator.of(context).pop(false),
+                          : () => Navigator.of(context).pop(),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),

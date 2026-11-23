@@ -64,6 +64,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final updatedAt = DateTime.now().toUtc();
       final demoProducts = [
         LocalProduct(
+          storeId: demoStoreId,
           id: 'demo-product-kopi',
           sku: 'DEMO-001',
           barcode: 'DEMO-001',
@@ -74,6 +75,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           updatedAt: updatedAt,
         ),
         LocalProduct(
+          storeId: demoStoreId,
           id: 'demo-product-teh',
           sku: 'DEMO-002',
           barcode: 'DEMO-002',
@@ -84,6 +86,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           updatedAt: updatedAt,
         ),
         LocalProduct(
+          storeId: demoStoreId,
           id: 'demo-product-roti',
           sku: 'DEMO-003',
           barcode: 'DEMO-003',
@@ -94,6 +97,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           updatedAt: updatedAt,
         ),
         LocalProduct(
+          storeId: demoStoreId,
           id: 'demo-product-air',
           sku: 'DEMO-004',
           barcode: 'DEMO-004',
@@ -104,6 +108,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           updatedAt: updatedAt,
         ),
         LocalProduct(
+          storeId: demoStoreId,
           id: 'demo-product-snack',
           sku: 'DEMO-005',
           barcode: 'DEMO-005',
@@ -114,6 +119,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           updatedAt: updatedAt,
         ),
         LocalProduct(
+          storeId: demoStoreId,
           id: 'demo-product-susu',
           sku: 'DEMO-006',
           barcode: 'DEMO-006',
@@ -125,7 +131,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
       ];
       for (final product in demoProducts) {
-        if (await db.productsDao.getProductById(product.id) == null) {
+        if (await db.productsDao.getProductById(product.id, storeId: demoStoreId) == null) {
           await db.productsDao.upsertProduct(product);
         }
       }

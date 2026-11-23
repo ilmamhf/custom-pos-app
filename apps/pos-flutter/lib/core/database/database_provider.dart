@@ -10,3 +10,14 @@ import 'app_database.dart';
 final databaseProvider = Provider<AppDatabase>((ref) {
   throw UnimplementedError('databaseProvider must be overridden');
 });
+
+/// Legacy bucket used by unit tests and pre-store-selection preview data.
+const defaultLocalStoreId = 'store-1';
+
+/// The store whose catalog the POS should read from.
+///
+/// `main()` overrides this to follow the selected store; tests and the initial
+/// pre-login state fall back to [defaultLocalStoreId].
+final activeStoreIdProvider = Provider<String>((ref) {
+  return defaultLocalStoreId;
+});

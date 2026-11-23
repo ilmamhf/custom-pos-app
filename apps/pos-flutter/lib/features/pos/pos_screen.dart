@@ -48,8 +48,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     if (query.isEmpty) return;
 
     final db = ref.read(databaseProvider);
-    final product = await db.productsDao.getProductByBarcode(query) ??
-        await db.productsDao.getProductBySku(query);
+    final storeId = ref.read(activeStoreIdProvider);
+    final product =
+        await db.productsDao.getProductByBarcode(query, storeId: storeId) ??
+            await db.productsDao.getProductBySku(query, storeId: storeId);
 
     if (!mounted) return;
     if (product != null && product.isActive) {

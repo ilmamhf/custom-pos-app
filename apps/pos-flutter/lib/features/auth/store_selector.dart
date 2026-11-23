@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utils/currency.dart';
 import 'auth_provider.dart';
+import 'pin_service.dart';
 
 /// Store selector screen after login.
 class StoreSelectorScreen extends ConsumerWidget {
@@ -67,9 +68,12 @@ class StoreSelectorScreen extends ConsumerWidget {
                   return _StoreCard(
                     store: store,
                     isSelected: isSelected,
-                    onTap: () {
+                    onTap: () async {
+                      // Offline PIN grants are store-bound; drop any previous
+                      // store's cache when the active store changes.
+                      await ref.read(pinServiceProvider).clearCache();
                       ref.read(authProvider.notifier).selectStore(store);
-                      context.go('/shift');
+                      if (context.mounted) context.go('/shift');
                     },
                   );
                 },

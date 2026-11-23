@@ -89,6 +89,7 @@ class CheckoutService {
       paymentMethod: paymentMethod,
       items: items,
       syncToServer: syncToServer,
+      createdAt: createdAt,
     );
   }
 }

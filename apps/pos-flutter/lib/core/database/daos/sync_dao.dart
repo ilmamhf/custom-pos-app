@@ -50,6 +50,48 @@ class SyncDao {
     return rows.map(_rowToEntry).toList();
   }
 
+  /// Pending plus retryable failed entries, oldest first.
+  Future<List<SyncOutboxEntry>> getRetryableEntries({
+    int limit = 50,
+    int maxRetries = 8,
+  }) async {
+    final rows = _db.select('''
+      SELECT * FROM sync_outbox
+      WHERE status = ?
+         OR (status = ? AND retry_count < ?)
+      ORDER BY created_at ASC
+      LIMIT ?
+    ''', [
+      SyncStatus.pending.name.toUpperCase(),
+      SyncStatus.failed.name.toUpperCase(),
+      maxRetries,
+      limit,
+    ]);
+    return rows.map(_rowToEntry).toList();
+  }
+
+  /// Durable per-store delta-pull cursor.
+  Future<DateTime?> getCursor(String storeId) async {
+    final rows = _db.select(
+      'SELECT cursor FROM local_sync_state WHERE store_id = ?',
+      [storeId],
+    );
+    if (rows.isEmpty) return null;
+    return DateTime.tryParse(rows.first['cursor'] as String);
+  }
+
+  Future<void> setCursor(String storeId, DateTime cursor) async {
+    _db.execute('''
+      INSERT OR REPLACE INTO local_sync_state (store_id, cursor, updated_at)
+      VALUES (?, ?, ?)
+    ''', [
+      storeId,
+      cursor.toUtc().toIso8601String(),
+      DateTime.now().toUtc().millisecondsSinceEpoch,
+    ]);
+    await _db.flush();
+  }
+
   /// Marks an entry as currently being attempted.
   Future<void> markAttempting(int id) async {
     _db.execute('''

@@ -1,8 +1,9 @@
 /// Sync engine: push outbox → pull delta.
 ///
-/// Watches connectivity and drains the outbox FIFO. On success marks entries
-/// `SYNCED`, on failure `FAILED` with retry count. After a successful push,
-/// pulls server changes since the last sync timestamp.
+/// Watches connectivity and drains pending + retryable outbox entries. The
+/// server response is authoritative per entity: an outbox row is only marked
+/// `SYNCED` when its own id appears in the matching success set. A per-entity
+/// rejection is retained for retry instead of being silently discarded.
 
 import 'dart:async';
 import 'dart:convert';
@@ -13,6 +14,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/database_provider.dart';
 import '../../core/database/tables/local_products.dart';
+import '../../core/database/tables/sync_outbox.dart';
 import '../auth/auth_provider.dart';
 import '../shift/shift_provider.dart';
 
@@ -79,7 +81,6 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
   bool _disposed = false;
 
   Future<void> _init() async {
-    // Skip initialization in test mode (when _db is null)
     if (_db == null) return;
 
     await _refreshCounts();
@@ -109,15 +110,16 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
   Future<void> _maybeSync() async {
     if (!state.isOnline ||
         state.isSyncing ||
-        state.pendingCount == 0 ||
+        (state.pendingCount + state.failedCount) == 0 ||
         _db == null) return;
     await syncNow();
   }
 
   /// Manual trigger (e.g., pull-to-refresh).
   Future<void> syncNow() async {
-    if (state.isSyncing || !state.isOnline || _db == null || _dio == null)
+    if (state.isSyncing || !state.isOnline || _db == null || _dio == null) {
       return;
+    }
     final auth = _ref?.read(shiftAuthProvider);
     if (auth?.isDemo ?? false) return;
     state = state.copyWith(isSyncing: true, clearError: true);
@@ -138,39 +140,94 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     if (_db == null || _dio == null) return;
     final db = _db;
     final dio = _dio;
+
     while (true) {
-      final entries = await db.syncDao.getPendingEntries(limit: 10);
+      final entries = await db.syncDao.getRetryableEntries(limit: 10);
       if (entries.isEmpty) break;
 
+      var progressed = false;
       for (final entry in entries) {
         await db.syncDao.markAttempting(entry.id);
+
+        final payload = jsonDecode(entry.payload) as Map<String, dynamic>;
+        final storeId = payload['storeId'] as String;
+        if (storeId == demoStoreId) {
+          await db.syncDao.deleteEntry(entry.id);
+          continue;
+        }
+
         try {
-          final payload = jsonDecode(entry.payload) as Map<String, dynamic>;
-          final storeId = payload['storeId'] as String;
-          if (storeId == demoStoreId) {
-            await db.syncDao.deleteEntry(entry.id);
-            continue;
-          }
-          final response = await dio.post('/sync/push',
-              data: payload,
-              options: Options(headers: {'X-Store-Id': storeId}));
-          if (response.statusCode == 200) {
-            final data = response.data as Map<String, dynamic>;
-            final syncedShifts =
-                (data['syncedShiftIds'] as List?)?.cast<String>() ?? const [];
-            final syncedSales =
-                (data['syncedSaleIds'] as List?)?.cast<String>() ?? const [];
-            await _markLocalSynced(syncedShifts, syncedSales);
-            await db.syncDao.markSynced(entry.id);
-          } else {
+          final response = await dio.post(
+            '/sync/push',
+            data: payload,
+            options: Options(headers: {
+              'X-Store-Id': storeId,
+              // Allows the retry interceptor to safely resend this request.
+              'Idempotency-Key': '${entry.entityType}:${entry.entityId}',
+            }),
+          );
+
+          if (response.statusCode != 200) {
             throw Exception('Push failed: ${response.statusCode}');
+          }
+
+          final data = response.data as Map<String, dynamic>;
+          final syncedShifts =
+              (data['syncedShiftIds'] as List?)?.cast<String>() ?? const [];
+          final syncedSales =
+              (data['syncedSaleIds'] as List?)?.cast<String>() ?? const [];
+          final syncedRefunds =
+              (data['syncedRefundIds'] as List?)?.cast<String>() ?? const [];
+
+          await _markLocalSynced(syncedShifts, syncedSales);
+
+          if (_isAcknowledged(entry, syncedShifts, syncedSales, syncedRefunds)) {
+            await db.syncDao.markSynced(entry.id);
+            progressed = true;
+          } else {
+            await db.syncDao.markFailed(
+              entry.id,
+              _failureReason(data, entry),
+            );
           }
         } catch (e) {
           await db.syncDao.markFailed(entry.id, e.toString());
+          // Transport/server failure: stop this pass and retry later.
           rethrow;
         }
       }
+
+      // Nothing was acknowledged: avoid spinning forever on terminal rejects.
+      if (!progressed) break;
     }
+  }
+
+  bool _isAcknowledged(
+    SyncOutboxEntry entry,
+    List<String> shiftIds,
+    List<String> saleIds,
+    List<String> refundIds,
+  ) {
+    switch (entry.entityType) {
+      case 'shift':
+        return shiftIds.contains(entry.entityId);
+      case 'sale':
+        return saleIds.contains(entry.entityId);
+      case 'refund':
+        return refundIds.contains(entry.entityId);
+      default:
+        return false;
+    }
+  }
+
+  String _failureReason(Map<String, dynamic> data, SyncOutboxEntry entry) {
+    final failures = data['failed'] as List? ?? const [];
+    for (final failure in failures) {
+      if (failure is Map && failure['id'] == entry.entityId) {
+        return (failure['error'] as String?) ?? 'Server rejected this item';
+      }
+    }
+    return 'Server did not acknowledge this item';
   }
 
   Future<void> _markLocalSynced(
@@ -188,16 +245,16 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
 
   Future<void> _pullDelta() async {
     if (_db == null || _dio == null || _ref == null) return;
+    final db = _db;
     final dio = _dio;
     final ref = _ref;
-    final auth = ref.read(shiftAuthProvider);
-    final store = auth.selectedStore;
-    if (store == null) return;
 
-    final lastSync = state.lastSyncedAt;
-    final queryParams = {'storeId': store.id};
-    if (lastSync != null) {
-      queryParams['since'] = lastSync.toUtc().toIso8601String();
+    final storeId = ref.read(activeStoreIdProvider);
+    final cursor = await db.syncDao.getCursor(storeId) ?? state.lastSyncedAt;
+
+    final queryParams = <String, String>{'storeId': storeId};
+    if (cursor != null) {
+      queryParams['since'] = cursor.toUtc().toIso8601String();
     }
 
     final response = await dio.get('/sync/pull', queryParameters: queryParams);
@@ -205,27 +262,37 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
 
     final data = response.data as Map<String, dynamic>;
     final productsJson = data['products'] as List? ?? const [];
+
     if (productsJson.isNotEmpty) {
-      final products = productsJson
-          .map((p) => LocalProduct(
-                id: p['id'] as String,
-                sku: p['sku'] as String,
-                barcode: p['barcode'] as String?,
-                name: p['name'] as String,
-                effectivePrice: p['effectivePrice'] as int,
-                stockOnHand: p['stockOnHand'] as int,
-                isActive: p['isActive'] as bool,
-                updatedAt: DateTime.parse(p['updatedAt'] as String),
-                lastSyncedAt: DateTime.now().toUtc(),
-              ))
-          .toList();
-      await _db.productsDao.upsertProducts(products);
+      // Preserve local stock decrements from sales the server has not yet
+      // acknowledged instead of overwriting them with authoritative stock.
+      final pendingDelta = await db.salesDao.getPendingStockDelta(storeId);
+
+      final products = productsJson.map((p) {
+        final id = p['id'] as String;
+        final serverStock = p['stockOnHand'] as int;
+        final localDelta = pendingDelta[id] ?? 0;
+        return LocalProduct(
+          storeId: storeId,
+          id: id,
+          sku: p['sku'] as String,
+          barcode: p['barcode'] as String?,
+          name: p['name'] as String,
+          effectivePrice: p['effectivePrice'] as int,
+          stockOnHand: serverStock - localDelta,
+          isActive: p['isActive'] as bool,
+          updatedAt: DateTime.parse(p['updatedAt'] as String),
+          lastSyncedAt: DateTime.now().toUtc(),
+        );
+      }).toList();
+
+      await db.productsDao.upsertProducts(products);
     }
 
-    // Server time can be used to update lastSyncedAt for the store context
-    if (data['serverTime'] != null) {
-      // final serverTime = DateTime.parse(data['serverTime'] as String);
-      // Optionally store as a global last-pull timestamp
+    // Persist a durable per-store cursor so deltas survive restarts.
+    final serverTime = data['serverTime'];
+    if (serverTime != null) {
+      await db.syncDao.setCursor(storeId, DateTime.parse(serverTime as String));
     }
   }
 

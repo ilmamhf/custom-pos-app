@@ -118,21 +118,29 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     await syncNow();
   }
 
-  /// Refresh the outbox counts and push immediately when online.
+  /// Refresh the outbox counts and push immediately.
   ///
-  /// Called after checkout/shift/refund events so a sale reaches the server
-  /// without waiting for the periodic timer or a connectivity change.
+  /// Forces past the advisory connectivity flag: `navigator.onLine` can be
+  /// stale on web, and the HTTP attempt itself is the reliable check.
   Future<void> requestSync() async {
     if (_db == null || _dio == null) return;
     await _refreshCounts();
-    await syncNow();
+    await syncNow(force: true);
+  }
+
+  /// Reset failed entries (including those past the retry cap) and push again.
+  Future<void> retryFailed() async {
+    if (_db == null || _dio == null) return;
+    await _db.syncDao.resetAllFailedToPending();
+    await requestSync();
   }
 
   /// Manual trigger (e.g., pull-to-refresh).
-  Future<void> syncNow() async {
-    if (state.isSyncing || !state.isOnline || _db == null || _dio == null) {
+  Future<void> syncNow({bool force = false}) async {
+    if (state.isSyncing || _db == null || _dio == null) {
       return;
     }
+    if (!state.isOnline && !force) return;
     final auth = _ref?.read(shiftAuthProvider);
     if (auth?.isDemo ?? false) return;
     state = state.copyWith(isSyncing: true, clearError: true);
@@ -147,7 +155,13 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
       return;
     }
     if (!mounted || _disposed) return;
-    state = state.copyWith(isSyncing: false, clearError: true);
+    // A completed request proves we are online even if the connectivity
+    // plugin reported otherwise.
+    state = state.copyWith(
+      isSyncing: false,
+      clearError: true,
+      isOnline: true,
+    );
     await _refreshCounts();
   }
 

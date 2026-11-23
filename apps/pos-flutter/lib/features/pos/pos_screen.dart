@@ -917,7 +917,47 @@ class _SyncStatusBadge extends ConsumerWidget {
       child: IconButton(
         iconSize: 22,
         visualDensity: VisualDensity.compact,
-        onPressed: () {
+        onPressed: () async {
+          final db = ref.read(databaseProvider);
+          final failed = await db.syncDao.getAllFailedEntries();
+          if (!context.mounted) return;
+
+          if (failed.isNotEmpty) {
+            final details = failed
+                .take(8)
+                .map((e) =>
+                    '${e.entityType} ${e.entityId}: ${e.lastError ?? 'unknown error'}')
+                .join('\n\n');
+            final retry = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: Text('${failed.length} sync issue(s)'),
+                content: SingleChildScrollView(
+                  child: Text(details, style: const TextStyle(fontSize: 12)),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('Close'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    child: const Text('Retry now'),
+                  ),
+                ],
+              ),
+            );
+            if (retry == true) {
+              await ref.read(syncProvider.notifier).retryFailed();
+              if (context.mounted) {
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                  const SnackBar(content: Text('Retrying failed sync items')),
+                );
+              }
+            }
+            return;
+          }
+
           ref.read(syncProvider.notifier).requestSync();
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(
             const SnackBar(

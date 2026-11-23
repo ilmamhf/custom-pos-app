@@ -298,3 +298,19 @@ nothing and there was no way to end a shift.
 - Route-guard tests updated to cover the reachable `/shift` route.
 - The sync status cloud is now a tappable icon that requests an immediate sync
   (still shows offline/syncing/pending/failed/synced state).
+
+## Live-test finding 3 (2026-11-23) — QRIS sale stuck / badge always red
+
+A QRIS sale did not reach the server while an earlier CASH sale had. A diagnostic
+`POST /sync/push` with the same QRIS shape succeeded (`syncedSaleIds` returned),
+so the API contract was not the problem.
+
+- The client gated `syncNow()` on `connectivity_plus`'s `navigator.onLine`
+  signal. A stale/incorrect offline report blocks every push, leaving the badge
+  red even though the browser is online.
+- `requestSync()` (post-sale/shift/refund) and the badge tap now force past the
+  advisory connectivity flag; a successful request marks the client online.
+- The badge tap now lists failed outbox entries with their `last_error` and a
+  **Retry now** action that resets the retry cap.
+- Observation: two open shifts existed for `kasir1@toko.id`. Close the unused
+  one to keep drawer reconciliation clean.

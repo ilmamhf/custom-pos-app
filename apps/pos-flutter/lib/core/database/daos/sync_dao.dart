@@ -50,6 +50,29 @@ class SyncDao {
     return rows.map(_rowToEntry).toList();
   }
 
+  /// All failed entries, regardless of retry count (for diagnostics UI).
+  Future<List<SyncOutboxEntry>> getAllFailedEntries() async {
+    final rows = _db.select('''
+      SELECT * FROM sync_outbox
+      WHERE status = ?
+      ORDER BY created_at ASC
+    ''', [SyncStatus.failed.name.toUpperCase()]);
+    return rows.map(_rowToEntry).toList();
+  }
+
+  /// Resets every failed entry so it is retried, clearing the retry cap.
+  Future<void> resetAllFailedToPending() async {
+    _db.execute('''
+      UPDATE sync_outbox
+      SET status = ?, last_error = NULL, retry_count = 0
+      WHERE status = ?
+    ''', [
+      SyncStatus.pending.name.toUpperCase(),
+      SyncStatus.failed.name.toUpperCase(),
+    ]);
+    await _db.flush();
+  }
+
   /// Pending plus retryable failed entries, oldest first.
   Future<List<SyncOutboxEntry>> getRetryableEntries({
     int limit = 50,

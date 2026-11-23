@@ -162,4 +162,73 @@ describe('SyncService (Idempotency)', () => {
     expect(mockTx.storeInventory.upsert).toHaveBeenCalledTimes(1);
     expect(mockTx.stockLedger.create).toHaveBeenCalledTimes(1);
   });
+
+  it('allocates an order-level discount and recomputes tax on the discounted amount', async () => {
+    const storeId = 'a0000000-0000-0000-0000-000000000001';
+    const saleId = 'e0000000-0000-0000-0000-000000000002';
+    const shiftId = 'd0000000-0000-0000-0000-000000000002';
+    const productId = 'c0000000-0000-0000-0000-000000000001';
+    const userId = 'b0000000-0000-0000-0000-000000000003';
+
+    mockPrismaService.store.findUnique.mockResolvedValue({
+      id: storeId,
+      taxRateBps: 1100,
+    });
+    mockPrismaService.product.findMany.mockResolvedValue([
+      {
+        id: productId,
+        name: 'Kopi Susu Gula Aren',
+        basePrice: 18000n,
+        storeInventory: [{ storeId, priceOverride: null }],
+      },
+    ]);
+    mockTx.shift.findUnique.mockResolvedValue({
+      id: shiftId,
+      storeId,
+      userId,
+      openedAt: new Date(0),
+      closedAt: null,
+    });
+    mockTx.sale.findUnique.mockResolvedValueOnce(null);
+    mockTx.sale.create.mockResolvedValueOnce({ id: saleId });
+
+    const result = await service.push(userId, {
+      storeId,
+      shifts: [],
+      sales: [
+        {
+          id: saleId,
+          shiftId,
+          receiptNo: 'BKS-DISCOUNT-0001',
+          subtotal: 36000,
+          taxTotal: 0,
+          discountTotal: 3600,
+          grandTotal: 0,
+          paymentMethod: PaymentMethod.CASH,
+          createdAt: new Date().toISOString(),
+          items: [
+            {
+              id: 'item-discount',
+              productId,
+              productNameSnapshot: 'ignored',
+              unitPrice: 18000,
+              qty: 2,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.failed).toHaveLength(0);
+    const data = mockTx.sale.create.mock.calls[0][0].data;
+    expect(data.subtotal).toBe(36000n);
+    expect(data.discountTotal).toBe(3600n);
+    expect(data.taxTotal).toBe(3564n);
+    expect(data.grandTotal).toBe(35964n);
+
+    const item = data.saleItems.create[0];
+    expect(item.discountAmount).toBe(3600n);
+    expect(item.taxAmount).toBe(3564n);
+    expect(item.lineTotal).toBe(35964n);
+  });
 });

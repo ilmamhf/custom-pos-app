@@ -4,6 +4,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -174,6 +175,7 @@ export class SalesService {
     items: Array<{ saleItemId: string; refundQty: number }>;
     reason?: string;
     idempotencyKey?: string;
+    expectedStoreId?: string;
   }) {
     return this.executeRefund(params);
   }
@@ -205,6 +207,7 @@ export class SalesService {
     items: Array<{ saleItemId: string; refundQty: number }>;
     reason?: string;
     idempotencyKey?: string;
+    expectedStoreId?: string;
   }) {
     const { saleId, actorUserId, reason, idempotencyKey } = params;
 
@@ -243,6 +246,10 @@ export class SalesService {
 
       if (!sale) {
         throw new NotFoundException(`Sale with ID ${saleId} not found`);
+      }
+
+      if (params.expectedStoreId && sale.storeId !== params.expectedStoreId) {
+        throw new ForbiddenException('This sale belongs to another store');
       }
 
       let totalRefundAmount = 0n;

@@ -129,6 +129,8 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     } catch (e) {
       if (!mounted || _disposed) return;
       state = state.copyWith(isSyncing: false, lastError: e.toString());
+      // Reflect the newly failed rows so the retry gate and badge are accurate.
+      await _refreshCounts();
       return;
     }
     if (!mounted || _disposed) return;

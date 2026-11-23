@@ -236,3 +236,22 @@ overrides without migration testing. Recommended deliberate sequence:
 exploitable through the reviewed request paths in the same way as the fixed
 application defects (e.g. `tar` is build-time tooling), but they must be cleared
 before an internet-facing release.
+
+## Recheck (2026-11-23)
+
+Every finding was re-verified against the code. Full status matrix:
+[`recheck-after-remediation.md`](./recheck-after-remediation.md).
+
+The recheck found and fixed four additional gaps:
+
+1. Discounted offline sales now preserve per-line and bounded order discounts
+   through sync (plus a regression test); previously they synced at full price.
+2. Sync refunds now reject a sale that belongs to a different store than the
+   authorized grant.
+3. Replayed refund commands are idempotent before grant verification, so an
+   already-applied refund cannot be stuck retrying after grant expiry.
+4. Flutter refreshes its pending/failed counts after a transport failure so the
+   retry gate and badge stay accurate.
+
+Still open after recheck: M-02, M-16, R-01, R-03, R-06; partial: H-02, H-08,
+H-13, M-04, M-07, R-02, R-04; deferred: M-08/R-05, D-01, D-02.

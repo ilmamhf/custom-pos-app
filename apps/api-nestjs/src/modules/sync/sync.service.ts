@@ -177,7 +177,7 @@ export class SyncService {
               throw new Error('Sale occurs after its shift closed');
             }
 
-            const lines = sale.items.map((item) => {
+            const baseLines = sale.items.map((item) => {
               const product = productMap.get(item.productId);
               if (!product) {
                 throw new Error(`Product ${item.productId} not found`);
@@ -187,18 +187,52 @@ export class SyncService {
                 inv && inv.priceOverride !== null ? inv.priceOverride : product.basePrice;
               const gross = unitPrice * BigInt(item.qty);
               const requestedDiscount = BigInt(item.discountAmount ?? 0);
-              const discount = requestedDiscount > gross ? gross : requestedDiscount;
+              const itemDiscount =
+                requestedDiscount > gross ? gross : requestedDiscount;
               return {
                 item,
                 productName: product.name,
                 unitPrice,
                 gross,
-                discount,
-                taxable: gross - discount,
+                itemDiscount,
               };
             });
 
-            const subtotal = lines.reduce((sum, l) => sum + l.gross, 0n);
+            const subtotal = baseLines.reduce((sum, l) => sum + l.gross, 0n);
+            const itemDiscountTotal = baseLines.reduce(
+              (sum, l) => sum + l.itemDiscount,
+              0n,
+            );
+
+            // The client may also send an order-level discount. Treat it as a
+            // bounded hint: never exceed the remaining pre-tax amount, and
+            // allocate it across lines by their post-item-discount weight so
+            // refunds and reports have an exact per-line snapshot.
+            const requestedSaleDiscount = BigInt(sale.discountTotal ?? 0);
+            const rawOrderDiscount =
+              requestedSaleDiscount > itemDiscountTotal
+                ? requestedSaleDiscount - itemDiscountTotal
+                : 0n;
+            const maxOrderDiscount = subtotal - itemDiscountTotal;
+            const orderDiscount =
+              rawOrderDiscount > maxOrderDiscount
+                ? maxOrderDiscount
+                : rawOrderDiscount;
+
+            const orderShares = allocateProportionally(
+              orderDiscount,
+              baseLines.map((l) => l.gross - l.itemDiscount),
+            );
+
+            const lines = baseLines.map((line, index) => {
+              const discount = line.itemDiscount + orderShares[index];
+              return {
+                ...line,
+                discount,
+                taxable: line.gross - discount,
+              };
+            });
+
             const discountTotal = lines.reduce((sum, l) => sum + l.discount, 0n);
             const taxableTotal = subtotal - discountTotal;
             const taxTotal = calculateTaxBps(taxableTotal, store.taxRateBps);
@@ -285,6 +319,16 @@ export class SyncService {
     // 3. Apply refund commands (authorized by a signed grant or online PIN).
     for (const refund of dto.refunds ?? []) {
       try {
+        // A replayed command whose refund already exists is idempotent even if
+        // its authorization grant has since expired.
+        const alreadyApplied = await this.prisma.refund.findUnique({
+          where: { idempotencyKey: refund.id },
+        });
+        if (alreadyApplied) {
+          syncedRefundIds.push(refund.id);
+          continue;
+        }
+
         if (refund.authorizationToken) {
           await this.authService.verifyOfflineGrant(refund.authorizationToken, {
             storeId,
@@ -304,6 +348,7 @@ export class SyncService {
           items: refund.items,
           reason: refund.reason,
           idempotencyKey: refund.id,
+          expectedStoreId: storeId,
         });
         syncedRefundIds.push(refund.id);
       } catch (err: any) {

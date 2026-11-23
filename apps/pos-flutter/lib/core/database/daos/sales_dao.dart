@@ -402,6 +402,12 @@ String buildSalePushPayload({
               'productNameSnapshot': items[i].productNameSnapshot,
               'unitPrice': items[i].unitPrice,
               'qty': items[i].qty,
+              // Reconciliation hints: the server recomputes the authoritative
+              // price/tax but needs the line discount to preserve a discounted
+              // offline sale.
+              'discountAmount': items[i].discountAmount,
+              'taxAmount': items[i].taxAmount,
+              'lineTotal': items[i].lineTotal,
             }
         ],
       }

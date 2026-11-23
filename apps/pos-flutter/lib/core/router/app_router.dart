@@ -14,7 +14,10 @@ import '../../features/shift/shift_provider.dart';
 /// Pure route-guard decision, kept separate so it can be unit tested.
 ///
 /// Order matters: authentication first, then store selection, then an open
-/// shift. Once all three are satisfied the POS is the only sensible place to be.
+/// shift. With an open shift the operational screens (POS, Shift Management,
+/// refund) are all allowed; only the pre-POS screens are bounced to the POS.
+///
+/// `/shift` must stay reachable while a shift is open — it hosts Close Shift.
 String? resolveRedirect({
   required bool isLoggedIn,
   required bool hasStore,
@@ -30,9 +33,7 @@ String? resolveRedirect({
   if (!hasOpenShift) {
     return location == '/shift' ? null : '/shift';
   }
-  if (location == '/login' ||
-      location == '/store-selector' ||
-      location == '/shift') {
+  if (location == '/login' || location == '/store-selector') {
     return '/pos';
   }
   return null;

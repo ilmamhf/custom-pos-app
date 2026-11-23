@@ -71,29 +71,29 @@ void main() {
     });
 
     test('moves a fully ready cashier from pre-POS screens to POS', () {
-      for (final location in ['/login', '/store-selector', '/shift']) {
+      for (final location in ['/login', '/store-selector']) {
         expect(
           redirect(loggedIn: true, hasStore: true, hasShift: true, location: location),
           '/pos',
           reason: 'location $location',
         );
       }
+
+      // Shift Management hosts Close Shift, so it must remain reachable.
+      expect(
+        redirect(loggedIn: true, hasStore: true, hasShift: true, location: '/shift'),
+        isNull,
+      );
     });
 
-    test('allows the POS and refund routes once a shift is open', () {
-      expect(
-        redirect(loggedIn: true, hasStore: true, hasShift: true, location: '/pos'),
-        isNull,
-      );
-      expect(
-        redirect(
-          loggedIn: true,
-          hasStore: true,
-          hasShift: true,
-          location: '/refund/sale-1',
-        ),
-        isNull,
-      );
+    test('allows the POS, shift, and refund routes once a shift is open', () {
+      for (final location in ['/pos', '/shift', '/refund/sale-1']) {
+        expect(
+          redirect(loggedIn: true, hasStore: true, hasShift: true, location: location),
+          isNull,
+          reason: 'location $location',
+        );
+      }
     });
   });
 }

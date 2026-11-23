@@ -285,3 +285,16 @@ Fixes:
 Note: the Flutter "Open offline demo" path deliberately never syncs; a real
 sale must come from a logged-in session. Existing pending outbox rows will push
 on the next app start or within the timer interval after this build is loaded.
+
+## Live-test finding 2 (2026-11-23) — Shift button did nothing
+
+The POS app bar's Shift icon navigates to `/shift`, but `resolveRedirect` sent
+`/shift` back to `/pos` whenever a shift was open. That made Shift Management —
+and therefore Close Shift — unreachable, so pressing the icon appeared to do
+nothing and there was no way to end a shift.
+
+- Allow `/shift` while a shift is open; only `/login` and `/store-selector`
+  bounce to the POS.
+- Route-guard tests updated to cover the reachable `/shift` route.
+- The sync status cloud is now a tappable icon that requests an immediate sync
+  (still shows offline/syncing/pending/failed/synced state).

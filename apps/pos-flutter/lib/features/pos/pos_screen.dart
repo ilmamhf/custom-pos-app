@@ -913,8 +913,21 @@ class _SyncStatusBadge extends ConsumerWidget {
     }
 
     return Tooltip(
-      message: tooltip,
-      child: Icon(icon, color: color, size: 22),
+      message: '$tooltip • tap to sync',
+      child: IconButton(
+        iconSize: 22,
+        visualDensity: VisualDensity.compact,
+        onPressed: () {
+          ref.read(syncProvider.notifier).requestSync();
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(
+              content: Text('Sync requested'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        },
+        icon: Icon(icon, color: color),
+      ),
     );
   }
 }

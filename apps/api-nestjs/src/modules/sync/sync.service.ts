@@ -41,10 +41,22 @@ export class SyncService {
       throw new NotFoundException(`Store with ID ${query.storeId} not found`);
     }
 
-    const sinceDate = query.since ? new Date(query.since) : undefined;
+    // Full snapshot mode: ignore cursor, return all products
+    const isFullSnapshot = query.full === true;
+
+    // Determine the cursor: use query.since if provided, otherwise load from durable cursor store
+    let sinceDate = query.since ? new Date(query.since) : undefined;
+    if (!isFullSnapshot && !sinceDate) {
+      const cursor = await this.prisma.syncCursor.findUnique({ where: { storeId: query.storeId } });
+      if (cursor) {
+        sinceDate = new Date(cursor.cursor);
+      }
+    }
 
     const products = await this.prisma.product.findMany({
-      where: sinceDate
+      where: isFullSnapshot
+        ? undefined
+        : sinceDate
         ? {
             OR: [
               { updatedAt: { gte: sinceDate } },
@@ -85,10 +97,43 @@ export class SyncService {
       };
     });
 
+    let tombstones: Array<{ productId: string; deletedAt: string }> = [];
+    let fullSnapshot = false;
+
+    if (isFullSnapshot) {
+      // Full snapshot: return all products, no tombstones needed (client replaces all)
+      fullSnapshot = true;
+    } else {
+      // Delta mode: fetch tombstones for deleted/deactivated products since the cursor
+      const tombstoneRecords = await this.prisma.productTombstone.findMany({
+        where: {
+          storeId: query.storeId,
+          ...(sinceDate ? { deletedAt: { gte: sinceDate } } : {}),
+        },
+        select: { productId: true, deletedAt: true },
+        orderBy: { deletedAt: 'asc' },
+      });
+
+      tombstones = tombstoneRecords.map((t) => ({
+        productId: t.productId,
+        deletedAt: t.deletedAt.toISOString(),
+      }));
+    }
+
+    // Persist the current server time as the new cursor for this store
+    const serverTime = new Date();
+    await this.prisma.syncCursor.upsert({
+      where: { storeId: query.storeId },
+      create: { storeId: query.storeId, cursor: serverTime.toISOString() },
+      update: { cursor: serverTime.toISOString() },
+    });
+
     return {
-      serverTime: new Date().toISOString(),
+      serverTime: serverTime.toISOString(),
       store,
       products: formattedProducts,
+      tombstones,
+      fullSnapshot,
     };
   }
 

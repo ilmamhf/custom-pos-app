@@ -276,4 +276,9 @@ export class SyncPullQueryDto {
   @IsOptional()
   @IsISO8601()
   since?: string;
+
+  @ApiPropertyOptional({ example: false, description: 'Force full snapshot instead of delta (fallback after N failed deltas)' })
+  @IsOptional()
+  @Type(() => Boolean)
+  full?: boolean;
 }

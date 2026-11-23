@@ -236,6 +236,30 @@ class ProductsDao {
     return _db.delete('local_products', 'store_id = ?', [storeId]);
   }
 
+  /// Deletes a specific product from a store (used for tombstone processing).
+  Future<int> deleteProduct({required String storeId, required String productId}) async {
+    return _db.delete('local_products', 'store_id = ? AND id = ?', [storeId, productId]);
+  }
+
+  /// Deletes all products for a store that are NOT in the provided list.
+  /// Used during full snapshot sync to remove products deleted on the server
+  /// but for which we didn't receive a tombstone (e.g., deleted before the cursor).
+  Future<int> deleteProductsNotInList({
+    required String storeId,
+    required Set<String> productIds,
+  }) async {
+    if (productIds.isEmpty) {
+      return _db.delete('local_products', 'store_id = ?', [storeId]);
+    }
+    final placeholders = productIds.map((_) => '?').join(',');
+    // Since we can't easily get affected rows from execute, we return 0 as count is not critical
+    _db.execute(
+      'DELETE FROM local_products WHERE store_id = ? AND id NOT IN ($placeholders)',
+      <Object?>[storeId, ...productIds],
+    );
+    return 0;
+  }
+
   LocalProduct _rowToProduct(Map<String, Object?> row) {
     return LocalProduct(
       storeId: row['store_id'] as String,

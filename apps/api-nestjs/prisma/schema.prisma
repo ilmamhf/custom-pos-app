@@ -135,6 +135,7 @@ model Product {
   saleItems            SaleItem[]
   stockLedgers         StockLedger[]
   negativeStockEvents  NegativeStockEvent[]
+  tombstones           ProductTombstone[]
 
   @@index([barcode])
   @@map("products")
@@ -354,4 +355,26 @@ model NegativeStockEvent {
   @@index([storeId, productId])
   @@index([createdAt])
   @@map("negative_stock_events")
+}
+
+model SyncCursor {
+  id        String   @id @default(uuid()) @db.Uuid
+  storeId   String   @unique @map("store_id") @db.Uuid
+  cursor    String   // ISO timestamp
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("sync_cursors")
+}
+
+model ProductTombstone {
+  id        String   @id @default(uuid()) @db.Uuid
+  storeId   String   @map("store_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  deletedAt DateTime @default(now()) @map("deleted_at") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, productId])
+  @@index([storeId])
+  @@map("product_tombstones")
 }

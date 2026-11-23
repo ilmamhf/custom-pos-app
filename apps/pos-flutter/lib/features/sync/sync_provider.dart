@@ -271,7 +271,7 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     }
   }
 
-  Future<void> _pullDelta() async {
+  Future<void> _pullDelta({bool forceFullSnapshot = false}) async {
     if (_db == null || _dio == null || _ref == null) return;
     final db = _db;
     final dio = _dio;
@@ -281,8 +281,11 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
     final cursor = await db.syncDao.getCursor(storeId) ?? state.lastSyncedAt;
 
     final queryParams = <String, String>{'storeId': storeId};
-    if (cursor != null) {
+    if (cursor != null && !forceFullSnapshot) {
       queryParams['since'] = cursor.toUtc().toIso8601String();
+    }
+    if (forceFullSnapshot) {
+      queryParams['full'] = 'true';
     }
 
     final response = await dio.get('/sync/pull', queryParameters: queryParams);
@@ -290,6 +293,8 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
 
     final data = response.data as Map<String, dynamic>;
     final productsJson = data['products'] as List? ?? const [];
+    final tombstonesJson = data['tombstones'] as List? ?? const [];
+    final fullSnapshot = data['fullSnapshot'] as bool? ?? false;
 
     if (productsJson.isNotEmpty) {
       // Preserve local stock decrements from sales the server has not yet
@@ -315,6 +320,21 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
       }).toList();
 
       await db.productsDao.upsertProducts(products);
+    }
+
+    // Handle tombstones (deleted/deactivated products) - delete from local DB
+    if (tombstonesJson.isNotEmpty) {
+      for (final tombstone in tombstonesJson) {
+        final productId = tombstone['productId'] as String;
+        await db.productsDao.deleteProduct(storeId: storeId, productId: productId);
+      }
+    }
+
+    // If full snapshot received, clear all local products not in the response
+    // (products that were deleted on the server but we didn't have a tombstone for)
+    if (fullSnapshot && productsJson.isNotEmpty) {
+      final serverProductIds = productsJson.map((p) => p['id'] as String).toSet();
+      await db.productsDao.deleteProductsNotInList(storeId: storeId, productIds: serverProductIds);
     }
 
     // The catalog grid reads the local DB through a FutureProvider; invalidate

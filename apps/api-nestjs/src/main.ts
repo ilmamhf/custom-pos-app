@@ -22,10 +22,20 @@ async function bootstrap() {
       'CORS_ORIGIN must list explicit origins (comma-separated) in production',
     );
   }
+
+  // An array is an exact-match allowlist in the `cors` package, so a literal
+  // "*" must stay a string to act as the wildcard. Splitting it into ['*']
+  // silently blocks every browser origin.
+  const allowedOrigins = corsOrigin
+    ? corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean)
+    : ['*'];
+  const corsOriginOption =
+    allowedOrigins.length === 1 && allowedOrigins[0] === '*'
+      ? '*'
+      : allowedOrigins;
+
   app.enableCors({
-    origin: corsOrigin
-      ? corsOrigin.split(',').map((origin) => origin.trim())
-      : '*',
+    origin: corsOriginOption,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });

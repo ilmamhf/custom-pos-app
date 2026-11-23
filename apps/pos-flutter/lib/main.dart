@@ -16,7 +16,13 @@ import 'features/auth/pin_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(await createApp());
+}
 
+/// Builds the app root, including async platform setup.
+///
+/// UI tests (Patrol) pump this instead of calling `runApp()`.
+Future<Widget> createApp() async {
   final secureStorage = const FlutterSecureStorage();
   final authInterceptor = AuthInterceptor(secureStorage);
   final dio = createDioClient(
@@ -25,22 +31,20 @@ Future<void> main() async {
   );
   final database = await AppDatabase.open();
 
-  runApp(
-    ProviderScope(
-      overrides: [
-        databaseProvider.overrideWithValue(database),
-        dioProvider.overrideWithValue(dio),
-        authInterceptorProvider.overrideWithValue(authInterceptor),
-        secureStorageProvider.overrideWithValue(secureStorage),
-        // The catalog always follows the cashier's selected store.
-        activeStoreIdProvider.overrideWith(
-          (ref) =>
-              ref.watch(authProvider.select((s) => s.selectedStore?.id)) ??
-              defaultLocalStoreId,
-        ),
-      ],
-      child: const PosApp(),
-    ),
+  return ProviderScope(
+    overrides: [
+      databaseProvider.overrideWithValue(database),
+      dioProvider.overrideWithValue(dio),
+      authInterceptorProvider.overrideWithValue(authInterceptor),
+      secureStorageProvider.overrideWithValue(secureStorage),
+      // The catalog always follows the cashier's selected store.
+      activeStoreIdProvider.overrideWith(
+        (ref) =>
+            ref.watch(authProvider.select((s) => s.selectedStore?.id)) ??
+            defaultLocalStoreId,
+      ),
+    ],
+    child: const PosApp(),
   );
 }
 

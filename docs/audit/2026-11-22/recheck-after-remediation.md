@@ -86,7 +86,7 @@
 | API unit tests | 26 passed (added discount-allocation test) |
 | Flutter `flutter analyze` | No errors (24 pre-existing deprecation infos) |
 | Flutter checkout/sync payload tests | 12 passed |
-| API e2e | Still not runnable locally (Docker unavailable) |
+| API e2e | 19 passed against local Postgres (Docker Desktop) |
 
 ## Recommended next work
 

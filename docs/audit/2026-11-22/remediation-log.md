@@ -15,7 +15,7 @@
 | React tests (`NODE_ENV=test npm test`) | 27 passed |
 | Flutter `flutter analyze` | No errors (24 pre-existing dependency-deprecation infos) |
 | Flutter tests (`flutter test`) | 156 passed |
-| API e2e | Not run locally (Docker/Postgres unavailable); CI job added |
+| API e2e | 19 passed against local Postgres (Docker Desktop) |
 
 `NODE_ENV=production` is set in this Windows shell, which makes React resolve
 its production bundle under Vitest (`act(...) is not supported`). React tests
@@ -43,9 +43,9 @@ therefore run with `NODE_ENV=test`. CI sets it explicitly.
   cost prices; cashiers use the sync-pull catalog.
 
 **Residual:** C-02's "cashiers restricted to own operational records" is applied
-to sales detail/refund, not to every resource. The cross-store e2e matrix
-described in the audit was not added (e2e could not run locally); recommended as
-the next test investment.
+to sales detail/refund, not to every resource. The dedicated cross-store e2e
+matrix described in the audit was not added (the existing 19 e2e tests pass);
+recommended as the next test investment.
 
 ## Task 2 — Sync authority and state machine (H-02, H-03, H-04/05/06 server)
 
@@ -201,7 +201,10 @@ PBKDF2/Argon2 package.
   (analyze, test, web build), and an advisory dependency audit.
 
 **Residual:** CI has not executed yet (no push). The dependency-audit job is
-`continue-on-error` until D-01/D-02 are resolved.
+`continue-on-error` until D-01/D-02 are resolved. The local dev database predated
+the baseline migration (created with `db push`); it was synced and baselined with
+`prisma migrate resolve --applied 20261123000000_init`, after which the 19 e2e
+tests passed.
 
 ## Task 11 — Printer + operations (M-07, M-08, R-05) — DEFERRED
 

@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(npx prisma generate)",
+      "Shell(npx tsc --noEmit -p tsconfig.json)",
+      "Shell(npm:*)",
+      "Shell(git add apps/api-nestjs docs/audit && git commit -F - <<'EOF' fix(api): enforce store isolation and authoritative financial sync Tasks 1-5 of the 2026-11-22 audit remediation: - Resolve one canonical store context per request and reject conflicting header/query/route/body identifiers; scope all reads and mutations by the authorized store set (C-01, C-02). - Recompute sync prices, tax, and totals server-side; bind shifts to the authenticated user, validate store/cashier/timing, and apply shift-close transitions idempotently (H-02, H-03, H-05). - Make refunds non-empty, duplicate-aggregated, optimistically concurrent, snapshot-based, idempotent, and available as a first-class sync command (H-07, H-08, H-09 server side). - Concurrency-safe inventory transfers, fail-closed JWT secrets, sanitized error responses, bounded CORS/Swagger, health probes, `stores` staff alias, and token-version session revocation with /auth/me and /auth/logout (H-10, H-14, M-01, M-03, M-10, M-13, M-14). Co-authored-by: CommandCodeBot <noreply@commandcode.ai> EOF)",
+      "Shell(git:*)",
+      "Shell(node -p \"require('./node_modules/vite/package.json').version\")",
+      "Shell(Write-Output:*)",
+      "Shell(node -e console.log('node env', process.env.NODE_ENV))",
+      "powershell",
+      "Shell(flutter:*)",
+      "Shell(Select-String:*)",
+      "Shell(mkdir prisma\\migrations\\20261123000000_init 2>nul & npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script --output prisma/migrations/20261123000000_init/migration.sql)",
+      "Shell(docker:*)",
+      "Shell(npx prisma migrate status)",
+      "Shell(npx prisma db push --skip-generate)",
+      "Shell(npx prisma migrate resolve --applied 20261123000000_init)",
+      "Shell(node \"C:\\Users\\HYPEAM~1\\AppData\\Local\\Temp\\commandcode\\D--AI-Dev-Projects-custom-pos-1\\e045114c-4a76-42ea-aecf-af6eebccd066\\scratchpad\\check-secrets.js\")"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { StoreAccessGuard } from '../../common/guards/store-access.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Stores')
@@ -32,16 +33,19 @@ export class StoresController {
 
   @Get()
   @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
-  @ApiOperation({ summary: 'List all stores' })
-  async findAll() {
-    return this.storesService.findAll();
+  @ApiOperation({ summary: 'List stores accessible to the caller' })
+  async findAll(@CurrentUser() user: RequestUser) {
+    return this.storesService.findAll(user);
   }
 
   @Get(':id')
   @Roles(Role.OWNER, Role.MANAGER)
   @ApiOperation({ summary: 'Get store details by ID' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.storesService.findOne(id);
+  async findOne(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.storesService.findOne(id, user);
   }
 
   @Post()

@@ -65,7 +65,7 @@ export class SyncSaleItemDto {
   @IsNotEmpty()
   productNameSnapshot!: string;
 
-  @ApiProperty({ example: 18000 })
+  @ApiProperty({ example: 18000, description: 'Client hint; server recomputes from catalog' })
   @Type(() => Number)
   @IsInt()
   @Min(0)
@@ -76,6 +76,27 @@ export class SyncSaleItemDto {
   @IsInt()
   @Min(1)
   qty!: number;
+
+  @ApiPropertyOptional({ example: 0, description: 'Line discount hint (integer IDR)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  discountAmount?: number;
+
+  @ApiPropertyOptional({ example: 1980, description: 'Line tax hint (integer IDR)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  taxAmount?: number;
+
+  @ApiPropertyOptional({ example: 37980, description: 'Line total hint (integer IDR)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  lineTotal?: number;
 }
 
 export class SyncSaleDto {
@@ -135,6 +156,59 @@ export class SyncSaleDto {
   items!: SyncSaleItemDto[];
 }
 
+export class SyncRefundItemDto {
+  @ApiProperty({ example: 'f0000000-0000-0000-0000-000000000001' })
+  @IsUUID('4')
+  @IsNotEmpty()
+  saleItemId!: string;
+
+  @ApiProperty({ example: 1, minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  refundQty!: number;
+}
+
+export class SyncRefundDto {
+  @ApiProperty({ example: '90000000-0000-0000-0000-000000000001', description: 'Refund command UUID (idempotency key)' })
+  @IsUUID('4')
+  @IsNotEmpty()
+  id!: string;
+
+  @ApiProperty({ example: 'e0000000-0000-0000-0000-000000000001' })
+  @IsUUID('4')
+  @IsNotEmpty()
+  saleId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Signed offline authorization grant from POST /auth/verify-pin',
+  })
+  @IsOptional()
+  @IsString()
+  authorizationToken?: string;
+
+  @ApiPropertyOptional({ example: '123456', description: 'Online manager PIN (alternative to a grant)' })
+  @IsOptional()
+  @IsString()
+  managerPin?: string;
+
+  @ApiPropertyOptional({ example: 'Wrong item ordered' })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @ApiProperty({ type: [SyncRefundItemDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SyncRefundItemDto)
+  items!: SyncRefundItemDto[];
+
+  @ApiProperty({ example: '2026-11-21T14:30:00.000Z' })
+  @IsISO8601()
+  @IsNotEmpty()
+  createdAt!: string;
+}
+
 export class SyncPushDto {
   @ApiProperty({ example: 'a0000000-0000-0000-0000-000000000001' })
   @IsUUID('4')
@@ -152,6 +226,13 @@ export class SyncPushDto {
   @ValidateNested({ each: true })
   @Type(() => SyncSaleDto)
   sales!: SyncSaleDto[];
+
+  @ApiPropertyOptional({ type: [SyncRefundDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SyncRefundDto)
+  refunds?: SyncRefundDto[];
 }
 
 export class SyncPullQueryDto {

@@ -21,6 +21,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { StoreAccessGuard } from '../../common/guards/store-access.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
+import { StoreId } from '../../common/decorators/store-id.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Inventory')
@@ -33,8 +34,11 @@ export class InventoryController {
   @Get()
   @Roles(Role.OWNER, Role.MANAGER)
   @ApiOperation({ summary: 'Get store inventory levels with filters for low/negative stock' })
-  async findAll(@Query() query: QueryInventoryDto) {
-    return this.inventoryService.findAll(query);
+  async findAll(
+    @CurrentUser() user: RequestUser,
+    @Query() query: QueryInventoryDto,
+  ) {
+    return this.inventoryService.findAll(query, user);
   }
 
   @Post('adjust')
@@ -44,9 +48,10 @@ export class InventoryController {
   @ApiOperation({ summary: 'Adjust stock levels for restocks or shrinkage/damage' })
   async adjust(
     @CurrentUser() user: RequestUser,
+    @StoreId(true) canonicalStoreId: string,
     @Body() dto: AdjustInventoryDto,
   ) {
-    return this.inventoryService.adjust(user.id, dto);
+    return this.inventoryService.adjust(user.id, dto, canonicalStoreId);
   }
 
   @Post('transfer')
@@ -64,7 +69,10 @@ export class InventoryController {
   @Get('ledger')
   @Roles(Role.OWNER, Role.MANAGER)
   @ApiOperation({ summary: 'Get paginated stock ledger audit trail' })
-  async getLedger(@Query() query: QueryLedgerDto) {
-    return this.inventoryService.getLedger(query);
+  async getLedger(
+    @CurrentUser() user: RequestUser,
+    @Query() query: QueryLedgerDto,
+  ) {
+    return this.inventoryService.getLedger(query, user);
   }
 }

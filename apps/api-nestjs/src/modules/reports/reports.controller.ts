@@ -5,6 +5,7 @@ import { ReportSummaryQueryDto } from './dto/report.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Reports')
@@ -17,7 +18,10 @@ export class ReportsController {
   @Get('summary')
   @Roles(Role.OWNER, Role.MANAGER)
   @ApiOperation({ summary: 'Consolidated or store-specific aggregated sales KPIs & top products' })
-  async getSummary(@Query() query: ReportSummaryQueryDto) {
-    return this.reportsService.getSummary(query);
+  async getSummary(
+    @CurrentUser() user: RequestUser,
+    @Query() query: ReportSummaryQueryDto,
+  ) {
+    return this.reportsService.getSummary(query, user);
   }
 }

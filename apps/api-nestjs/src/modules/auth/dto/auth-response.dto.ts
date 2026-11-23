@@ -56,4 +56,33 @@ export class VerifyPinResponseDto {
 
   @ApiProperty({ example: 'Sari Manager' })
   managerName!: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Short-lived signed grant (store/user/action/expiry bound) for offline refunds',
+  })
+  offlineGrant?: string;
+}
+
+export class CurrentUserDto {
+  @ApiProperty({ example: 'b0000000-0000-0000-0000-000000000002' })
+  id!: string;
+
+  @ApiProperty({ example: 'Sari Manager' })
+  name!: string;
+
+  @ApiProperty({ example: 'MANAGER' })
+  role!: string;
+
+  @ApiProperty({ example: 'manager.bks@toko.id' })
+  email!: string;
+}
+
+export class CurrentSessionResponseDto {
+  @ApiProperty({ type: CurrentUserDto })
+  user!: CurrentUserDto;
+
+  @ApiProperty({ type: [AuthStoreDto] })
+  stores!: AuthStoreDto[];
 }

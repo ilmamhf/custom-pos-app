@@ -6,16 +6,29 @@ import {
   SetPriceOverrideDto,
   QueryProductDto,
 } from './dto/product.dto';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
+import { resolveStoreScope } from '../../common/utils/store-scope.util';
 
 @Injectable()
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: QueryProductDto) {
+  async findAll(query: QueryProductDto, user?: RequestUser) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
     const { search, storeId } = query;
+
+    const scope = user ? resolveStoreScope(user, storeId) : undefined;
+    const inventoryFilter = scope
+      ? scope.all
+        ? undefined
+        : scope.storeId
+          ? { storeId: scope.storeId }
+          : { storeId: { in: scope.storeIds } }
+      : storeId
+        ? { storeId }
+        : undefined;
 
     const where: Record<string, any> = {};
     if (search) {
@@ -35,7 +48,7 @@ export class ProductsService {
         orderBy: { createdAt: 'desc' },
         include: {
           storeInventory: {
-            where: storeId ? { storeId } : undefined,
+            where: inventoryFilter,
             include: {
               store: {
                 select: { id: true, name: true, code: true },
@@ -101,11 +114,19 @@ export class ProductsService {
     };
   }
 
-  async findOne(id: string, storeId?: string) {
+  async findOne(id: string, storeId?: string, user?: RequestUser) {
+    const scope = user ? resolveStoreScope(user, storeId) : undefined;
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: {
         storeInventory: {
+          where: scope
+            ? scope.all
+              ? undefined
+              : scope.storeId
+                ? { storeId: scope.storeId }
+                : { storeId: { in: scope.storeIds } }
+            : undefined,
           include: {
             store: {
               select: { id: true, name: true, code: true },

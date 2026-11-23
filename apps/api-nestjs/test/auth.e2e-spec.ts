@@ -108,6 +108,7 @@ describe('Auth Flow (E2E)', () => {
       authorized: true,
       managerId: expect.any(String),
       managerName: expect.stringMatching(/Manager|Owner/),
+      offlineGrant: expect.any(String),
     });
   });
 

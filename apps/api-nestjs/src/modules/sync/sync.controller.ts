@@ -16,6 +16,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { StoreAccessGuard } from '../../common/guards/store-access.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
+import { StoreId } from '../../common/decorators/store-id.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Sync')
@@ -37,11 +38,12 @@ export class SyncController {
   @HttpCode(HttpStatus.OK)
   @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
   @UseGuards(StoreAccessGuard)
-  @ApiOperation({ summary: 'Idempotent batch upload of offline shifts and sales' })
+  @ApiOperation({ summary: 'Idempotent batch upload of offline shifts, sales, and refunds' })
   async push(
     @CurrentUser() user: RequestUser,
+    @StoreId(true) canonicalStoreId: string,
     @Body() dto: SyncPushDto,
   ) {
-    return this.syncService.push(user.id, dto);
+    return this.syncService.push(user.id, dto, canonicalStoreId);
   }
 }

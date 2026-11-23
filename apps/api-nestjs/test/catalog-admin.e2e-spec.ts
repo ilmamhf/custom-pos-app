@@ -137,7 +137,7 @@ describe('Catalog, Stores & Users (E2E)', () => {
   it('GET /api/v1/products?storeId=... - should return store-specific effectivePrice and stockOnHand', async () => {
     const res = await request(app.getHttpServer())
       .get(`/api/v1/products?storeId=${bekasiStoreId}&search=${testSku}`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${managerToken}`)
       .expect(200);
 
     expect(res.body.items).toHaveLength(1);

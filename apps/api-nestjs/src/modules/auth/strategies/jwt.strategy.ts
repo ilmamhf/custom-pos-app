@@ -4,11 +4,13 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RequestUser } from '../../../common/decorators/current-user.decorator';
+import { resolveAccessSecret } from '../../../common/config/security.config';
 
 export interface JwtPayload {
   sub: string;
   email: string;
   role: string;
+  ver?: number;
 }
 
 @Injectable()
@@ -20,7 +22,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_ACCESS_SECRET') || 'pos-access-secret-key-12345',
+      secretOrKey: resolveAccessSecret(configService),
     });
   }
 
@@ -34,6 +36,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('User account is inactive or not found');
+    }
+
+    if (payload.ver !== undefined && payload.ver !== user.tokenVersion) {
+      throw new UnauthorizedException('Session has been revoked');
     }
 
     return {

@@ -1,18 +1,34 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateStoreDto, UpdateStoreDto } from './dto/store.dto';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
 
 @Injectable()
 export class StoresService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
+  async findAll(user?: RequestUser) {
+    if (user && user.role !== 'OWNER') {
+      const assigned = user.assignedStoreIds ?? [];
+      if (assigned.length === 0) {
+        throw new ForbiddenException('No store is assigned to this account');
+      }
+      return this.prisma.store.findMany({
+        where: { id: { in: assigned }, isActive: true },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
+
     return this.prisma.store.findMany({
       orderBy: { createdAt: 'asc' },
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: RequestUser) {
+    if (user && user.role !== 'OWNER' && !(user.assignedStoreIds ?? []).includes(id)) {
+      throw new ForbiddenException(`Access to store ${id} is denied`);
+    }
+
     const store = await this.prisma.store.findUnique({
       where: { id },
       include: {

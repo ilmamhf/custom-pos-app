@@ -1,13 +1,25 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SyncPushDto, SyncPullQueryDto } from './dto/sync.dto';
-import { SaleStatus, StockLedgerReason } from '@prisma/client';
+import {
+  SyncPushDto,
+  SyncPullQueryDto,
+  SyncShiftDto,
+} from './dto/sync.dto';
+import { PaymentMethod, SaleStatus, StockLedgerReason } from '@prisma/client';
+import { calculateTaxBps } from '../../common/utils/currency.util';
+import { expectedCashForSales } from '../../common/utils/shift-cash.util';
+import { AuthService } from '../auth/auth.service';
+import { SalesService } from '../sales/sales.service';
 
 @Injectable()
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authService: AuthService,
+    private readonly salesService: SalesService,
+  ) {}
 
   async pull(query: SyncPullQueryDto) {
     const store = await this.prisma.store.findUnique({
@@ -26,7 +38,6 @@ export class SyncService {
 
     const sinceDate = query.since ? new Date(query.since) : undefined;
 
-    // Fetch products and store inventory
     const products = await this.prisma.product.findMany({
       where: sinceDate
         ? {
@@ -76,112 +87,184 @@ export class SyncService {
     };
   }
 
-  async push(currentUserId: string, dto: SyncPushDto) {
+  async push(currentUserId: string, dto: SyncPushDto, canonicalStoreId?: string) {
+    const storeId = canonicalStoreId ?? dto.storeId;
+
+    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
+    if (!store) {
+      throw new NotFoundException(`Store with ID ${storeId} not found`);
+    }
+
     const syncedShiftIds: string[] = [];
     const syncedSaleIds: string[] = [];
-    const failed: Array<{ id: string; error: string }> = [];
+    const syncedRefundIds: string[] = [];
+    const failed: Array<{ id: string; entity: string; error: string }> = [];
 
-    // 1. Process shifts idempotently
-    if (dto.shifts && dto.shifts.length > 0) {
-      for (const shift of dto.shifts) {
-        try {
-          const existing = await this.prisma.shift.findUnique({
-            where: { id: shift.id },
+    const shiftCloseRequests = new Map<string, SyncShiftDto>();
+
+    // 1. Ensure every referenced shift exists, owned by the authenticated user.
+    for (const shift of dto.shifts ?? []) {
+      try {
+        const existing = await this.prisma.shift.findUnique({
+          where: { id: shift.id },
+        });
+
+        if (!existing) {
+          // Create it open. Close state is applied after sales are ingested so
+          // expected cash includes the same batch.
+          await this.prisma.shift.create({
+            data: {
+              id: shift.id,
+              storeId,
+              userId: currentUserId,
+              openedAt: new Date(shift.openedAt),
+              closedAt: null,
+              openingCash: BigInt(shift.openingCash),
+            },
           });
-
-          if (!existing) {
-            await this.prisma.shift.create({
-              data: {
-                id: shift.id,
-                storeId: dto.storeId,
-                userId: shift.userId || currentUserId,
-                openedAt: new Date(shift.openedAt),
-                closedAt: shift.closedAt ? new Date(shift.closedAt) : null,
-                openingCash: BigInt(shift.openingCash),
-                actualCash:
-                  shift.actualCash !== null && shift.actualCash !== undefined
-                    ? BigInt(shift.actualCash)
-                    : null,
-              },
-            });
+        } else {
+          if (existing.storeId !== storeId) {
+            throw new Error('Shift belongs to another store');
           }
-          syncedShiftIds.push(shift.id);
-        } catch (err: any) {
-          this.logger.error(`Failed to ingest shift ${shift.id}: ${err.message}`);
-          failed.push({ id: shift.id, error: err.message });
+          if (existing.userId !== currentUserId) {
+            throw new Error('Shift belongs to another user');
+          }
         }
+
+        if (shift.closedAt) {
+          shiftCloseRequests.set(shift.id, shift);
+        }
+        syncedShiftIds.push(shift.id);
+      } catch (err: any) {
+        this.logger.error(`Failed to ingest shift ${shift.id}: ${err.message}`);
+        failed.push({ id: shift.id, entity: 'shift', error: err.message });
       }
     }
 
-    // 2. Process sales idempotently inside individual transactions
+    // 2. Ingest sales with server-authoritative pricing and reconciliation.
     if (dto.sales && dto.sales.length > 0) {
+      const productIds = Array.from(
+        new Set(dto.sales.flatMap((s) => s.items.map((i) => i.productId))),
+      );
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        include: { storeInventory: { where: { storeId } } },
+      });
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
       for (const sale of dto.sales) {
         try {
           await this.prisma.$transaction(async (tx) => {
-            // Step 1: Check if sale already exists
-            const existingSale = await tx.sale.findUnique({
-              where: { id: sale.id },
-            });
+            const existingSale = await tx.sale.findUnique({ where: { id: sale.id } });
+            if (existingSale) return;
 
-            if (existingSale) {
-              // Already ingested, safe idempotency
-              return;
+            const shift = await tx.shift.findUnique({ where: { id: sale.shiftId } });
+            if (!shift) {
+              throw new Error(`Shift ${sale.shiftId} does not exist`);
+            }
+            if (shift.storeId !== storeId) {
+              throw new Error('Sale shift belongs to another store');
+            }
+            if (shift.userId !== currentUserId) {
+              throw new Error('Sale shift belongs to another cashier');
             }
 
-            // Step 2: Ingest sale & items
+            const saleTime = new Date(sale.createdAt);
+            if (saleTime < shift.openedAt) {
+              throw new Error('Sale predates its shift');
+            }
+            if (shift.closedAt && saleTime > shift.closedAt) {
+              throw new Error('Sale occurs after its shift closed');
+            }
+
+            const lines = sale.items.map((item) => {
+              const product = productMap.get(item.productId);
+              if (!product) {
+                throw new Error(`Product ${item.productId} not found`);
+              }
+              const inv = product.storeInventory[0];
+              const unitPrice =
+                inv && inv.priceOverride !== null ? inv.priceOverride : product.basePrice;
+              const gross = unitPrice * BigInt(item.qty);
+              const requestedDiscount = BigInt(item.discountAmount ?? 0);
+              const discount = requestedDiscount > gross ? gross : requestedDiscount;
+              return {
+                item,
+                productName: product.name,
+                unitPrice,
+                gross,
+                discount,
+                taxable: gross - discount,
+              };
+            });
+
+            const subtotal = lines.reduce((sum, l) => sum + l.gross, 0n);
+            const discountTotal = lines.reduce((sum, l) => sum + l.discount, 0n);
+            const taxableTotal = subtotal - discountTotal;
+            const taxTotal = calculateTaxBps(taxableTotal, store.taxRateBps);
+            const grandTotal = taxableTotal + taxTotal;
+
+            const taxShares = allocateProportionally(
+              taxTotal,
+              lines.map((l) => l.taxable),
+            );
+
             await tx.sale.create({
               data: {
                 id: sale.id,
-                storeId: dto.storeId,
+                storeId,
                 shiftId: sale.shiftId,
                 cashierId: currentUserId,
                 receiptNo: sale.receiptNo,
-                subtotal: BigInt(sale.subtotal),
-                taxTotal: BigInt(sale.taxTotal),
-                discountTotal: BigInt(sale.discountTotal ?? 0),
-                grandTotal: BigInt(sale.grandTotal),
+                subtotal,
+                taxTotal,
+                discountTotal,
+                grandTotal,
+                taxRateBps: store.taxRateBps,
                 paymentMethod: sale.paymentMethod,
                 status: SaleStatus.COMPLETED,
-                createdAt: new Date(sale.createdAt),
+                createdAt: saleTime,
                 saleItems: {
-                  create: sale.items.map((item) => ({
-                    id: item.id,
-                    productId: item.productId,
-                    productNameSnapshot: item.productNameSnapshot,
-                    unitPrice: BigInt(item.unitPrice),
-                    qty: item.qty,
+                  create: lines.map((line, index) => ({
+                    id: line.item.id,
+                    productId: line.item.productId,
+                    productNameSnapshot: line.productName,
+                    unitPrice: line.unitPrice,
+                    qty: line.item.qty,
                     refundedQty: 0,
+                    grossAmount: line.gross,
+                    discountAmount: line.discount,
+                    taxAmount: taxShares[index],
+                    lineTotal: line.taxable + taxShares[index],
+                    refundedAmount: 0n,
                   })),
                 },
               },
             });
 
-            // Step 3 & 4: Decrement stock & append to immutable stock_ledger
-            for (const item of sale.items) {
-              // Allow negative stock for concurrent offline sales
+            for (const line of lines) {
+              // Negative stock is allowed for offline sales.
               await tx.storeInventory.upsert({
                 where: {
                   storeId_productId: {
-                    storeId: dto.storeId,
-                    productId: item.productId,
+                    storeId,
+                    productId: line.item.productId,
                   },
                 },
-                update: {
-                  stockOnHand: { decrement: item.qty },
-                },
+                update: { stockOnHand: { decrement: line.item.qty } },
                 create: {
-                  storeId: dto.storeId,
-                  productId: item.productId,
-                  stockOnHand: -item.qty,
+                  storeId,
+                  productId: line.item.productId,
+                  stockOnHand: -line.item.qty,
                   priceOverride: null,
                 },
               });
 
               await tx.stockLedger.create({
                 data: {
-                  storeId: dto.storeId,
-                  productId: item.productId,
-                  deltaQty: -item.qty,
+                  storeId,
+                  productId: line.item.productId,
+                  deltaQty: -line.item.qty,
                   reason: StockLedgerReason.SALE,
                   referenceId: sale.id,
                   note: `Offline POS sale: ${sale.receiptNo}`,
@@ -194,15 +277,109 @@ export class SyncService {
           syncedSaleIds.push(sale.id);
         } catch (err: any) {
           this.logger.error(`Failed to ingest sale ${sale.id}: ${err.message}`);
-          failed.push({ id: sale.id, error: err.message });
+          failed.push({ id: sale.id, entity: 'sale', error: err.message });
         }
+      }
+    }
+
+    // 3. Apply refund commands (authorized by a signed grant or online PIN).
+    for (const refund of dto.refunds ?? []) {
+      try {
+        if (refund.authorizationToken) {
+          await this.authService.verifyOfflineGrant(refund.authorizationToken, {
+            storeId,
+            action: 'refund',
+          });
+        } else if (refund.managerPin) {
+          await this.authService.verifyPin({ storeId, pin: refund.managerPin });
+        } else {
+          throw new ForbiddenException(
+            'A refund command requires a manager PIN or offline authorization grant',
+          );
+        }
+
+        await this.salesService.applyAuthorizedRefund({
+          saleId: refund.saleId,
+          actorUserId: currentUserId,
+          items: refund.items,
+          reason: refund.reason,
+          idempotencyKey: refund.id,
+        });
+        syncedRefundIds.push(refund.id);
+      } catch (err: any) {
+        this.logger.error(`Failed to apply refund ${refund.id}: ${err.message}`);
+        failed.push({ id: refund.id, entity: 'refund', error: err.message });
+      }
+    }
+
+    // 4. Apply shift-close transitions after sales exist.
+    for (const [shiftId, request] of shiftCloseRequests) {
+      try {
+        const shift = await this.prisma.shift.findUnique({
+          where: { id: shiftId },
+          include: { sales: { include: { saleItems: true } } },
+        });
+        if (!shift) {
+          throw new Error('Shift disappeared before close');
+        }
+
+        if (!shift.closedAt) {
+          const expectedCash = expectedCashForSales(
+            shift.openingCash,
+            shift.sales.map((sale) => ({
+              paymentMethod: sale.paymentMethod,
+              grandTotal: sale.grandTotal,
+              saleItems: sale.saleItems,
+            })),
+          );
+          const actualCash =
+            request.actualCash !== null && request.actualCash !== undefined
+              ? BigInt(request.actualCash)
+              : expectedCash;
+
+          await this.prisma.shift.update({
+            where: { id: shiftId },
+            data: {
+              closedAt: request.closedAt ? new Date(request.closedAt) : new Date(),
+              expectedCash,
+              actualCash,
+            },
+          });
+        }
+        // Already closed: idempotent success.
+      } catch (err: any) {
+        this.logger.error(`Failed to close shift ${shiftId}: ${err.message}`);
+        failed.push({ id: shiftId, entity: 'shift', error: err.message });
       }
     }
 
     return {
       syncedShiftIds,
       syncedSaleIds,
+      syncedRefundIds,
       failed,
     };
   }
+}
+
+/** Splits `total` across `weights` in integer minor units, summing exactly. */
+function allocateProportionally(total: bigint, weights: bigint[]): bigint[] {
+  if (weights.length === 0) return [];
+  const sum = weights.reduce((a, b) => a + b, 0n);
+  if (total <= 0n || sum <= 0n) return weights.map(() => 0n);
+
+  const parts = weights.map((w) => (total * w) / sum);
+  let remainder = total - parts.reduce((a, b) => a + b, 0n);
+
+  const order = weights
+    .map((w, i) => ({ i, rem: (total * w) % sum }))
+    .sort((a, b) => (a.rem === b.rem ? a.i - b.i : b.rem > a.rem ? 1 : -1));
+
+  let index = 0;
+  while (remainder > 0n) {
+    parts[order[index % order.length].i] += 1n;
+    remainder -= 1n;
+    index++;
+  }
+  return parts;
 }

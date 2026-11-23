@@ -10,6 +10,7 @@ import { ShiftsModule } from './modules/shifts/shifts.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -27,5 +28,6 @@ import { ReportsModule } from './modules/reports/reports.module';
     SyncModule,
     ReportsModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

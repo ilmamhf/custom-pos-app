@@ -22,6 +22,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { StoreAccessGuard } from '../../common/guards/store-access.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, RequestUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Products')
@@ -32,20 +33,24 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
+  @Roles(Role.OWNER, Role.MANAGER)
   @ApiOperation({ summary: 'List products with optional search and store-specific stock/price' })
-  async findAll(@Query() query: QueryProductDto) {
-    return this.productsService.findAll(query);
+  async findAll(
+    @CurrentUser() user: RequestUser,
+    @Query() query: QueryProductDto,
+  ) {
+    return this.productsService.findAll(query, user);
   }
 
   @Get(':id')
-  @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
+  @Roles(Role.OWNER, Role.MANAGER)
   @ApiOperation({ summary: 'Get product by ID' })
   async findOne(
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Query('storeId') storeId?: string,
   ) {
-    return this.productsService.findOne(id, storeId);
+    return this.productsService.findOne(id, storeId, user);
   }
 
   @Post()

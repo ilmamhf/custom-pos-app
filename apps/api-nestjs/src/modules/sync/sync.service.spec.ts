@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { SyncService } from './sync.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentMethod, StockLedgerReason } from '@prisma/client';
+import { AuthService } from '../auth/auth.service';
+import { SalesService } from '../sales/sales.service';
 
 describe('SyncService (Idempotency)', () => {
   let service: SyncService;
@@ -9,6 +11,10 @@ describe('SyncService (Idempotency)', () => {
 
   const mockTx = {
     sale: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+    },
+    shift: {
       findUnique: jest.fn(),
       create: jest.fn(),
     },
@@ -24,6 +30,7 @@ describe('SyncService (Idempotency)', () => {
     shift: {
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
     store: {
       findUnique: jest.fn(),
@@ -36,6 +43,15 @@ describe('SyncService (Idempotency)', () => {
     }),
   };
 
+  const authService = {
+    verifyOfflineGrant: jest.fn(),
+    verifyPin: jest.fn(),
+  };
+
+  const salesService = {
+    applyAuthorizedRefund: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,6 +60,8 @@ describe('SyncService (Idempotency)', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        { provide: AuthService, useValue: authService },
+        { provide: SalesService, useValue: salesService },
       ],
     }).compile();
 
@@ -87,6 +105,23 @@ describe('SyncService (Idempotency)', () => {
     };
 
     // --- First push: sale does NOT exist yet ---
+    mockPrismaService.store.findUnique.mockResolvedValue({ id: storeId, taxRateBps: 1100 });
+    mockPrismaService.product.findMany.mockResolvedValue([
+      {
+        id: productId,
+        name: 'Kopi Susu Gula Aren',
+        basePrice: 18000n,
+        storeInventory: [{ storeId, priceOverride: null }],
+      },
+    ]);
+    mockTx.shift.findUnique.mockResolvedValue({
+      id: shiftId,
+      storeId,
+      userId,
+      openedAt: new Date(0),
+      closedAt: null,
+    });
+
     mockTx.sale.findUnique.mockResolvedValueOnce(null);
     mockTx.sale.create.mockResolvedValueOnce({ id: saleId });
     mockTx.storeInventory.upsert.mockResolvedValueOnce({

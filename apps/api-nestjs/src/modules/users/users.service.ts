@@ -8,7 +8,7 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       select: {
         id: true,
         name: true,
@@ -31,6 +31,8 @@ export class UsersService {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    return users.map((user) => this.withStoresAlias(user));
   }
 
   async findOne(id: string) {
@@ -62,7 +64,23 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    return user;
+    return this.withStoresAlias(user);
+  }
+
+  /**
+   * React Admin consumes `stores`; the API historically returned `userStores`.
+   * Return both so neither contract breaks.
+   */
+  private withStoresAlias<T extends { userStores: Array<{ storeId: string; store: { id: string; name: string; code: string } }> }>(
+    user: T,
+  ) {
+    return {
+      ...user,
+      stores: user.userStores.map((us) => ({
+        storeId: us.storeId,
+        store: { id: us.store.id, name: us.store.name, code: us.store.code },
+      })),
+    };
   }
 
   async create(dto: CreateUserDto) {

@@ -1,13 +1,21 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpenShiftDto, CloseShiftDto, QueryShiftDto } from './dto/shift.dto';
-import { PaymentMethod, SaleStatus } from '@prisma/client';
+import { Role, SaleStatus } from '@prisma/client';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
+import {
+  assertStoreInScope,
+  resolveStoreScope,
+  storeScopeWhere,
+} from '../../common/utils/store-scope.util';
+import { expectedCashForSales } from '../../common/utils/shift-cash.util';
 
 @Injectable()
 export class ShiftsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async openShift(userId: string, dto: OpenShiftDto) {
+  async openShift(userId: string, dto: OpenShiftDto, canonicalStoreId?: string) {
+    const storeId = canonicalStoreId ?? dto.storeId;
     const existing = await this.prisma.shift.findUnique({
       where: { id: dto.id },
     });
@@ -20,15 +28,15 @@ export class ShiftsService {
       };
     }
 
-    const store = await this.prisma.store.findUnique({ where: { id: dto.storeId } });
+    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
     if (!store) {
-      throw new NotFoundException(`Store with ID ${dto.storeId} not found`);
+      throw new NotFoundException(`Store with ID ${storeId} not found`);
     }
 
     const shift = await this.prisma.shift.create({
       data: {
         id: dto.id,
-        storeId: dto.storeId,
+        storeId,
         userId,
         openedAt: new Date(),
         openingCash: BigInt(dto.openingCash),
@@ -42,7 +50,7 @@ export class ShiftsService {
     };
   }
 
-  async closeShift(shiftId: string, dto: CloseShiftDto) {
+  async closeShift(shiftId: string, dto: CloseShiftDto, user?: RequestUser) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
       include: {
@@ -58,38 +66,28 @@ export class ShiftsService {
       throw new NotFoundException(`Shift with ID ${shiftId} not found`);
     }
 
+    if (user) {
+      assertStoreInScope(resolveStoreScope(user), shift.storeId);
+      const isManagerOrOwner =
+        user.role === Role.OWNER || user.role === Role.MANAGER;
+      if (!isManagerOrOwner && shift.userId !== user.id) {
+        throw new ForbiddenException('This shift belongs to another cashier');
+      }
+    }
+
     if (shift.closedAt) {
       throw new ConflictException(`Shift with ID ${shiftId} has already been closed`);
     }
 
-    // Expected cash calculation:
-    // opening_cash + cash_sales - cash_refunds
-    const openingCash = Number(shift.openingCash);
-
-    // Sum cash sales
-    let cashSales = 0;
-    let cashRefunds = 0;
-
-    for (const sale of shift.sales) {
-      if (sale.paymentMethod === PaymentMethod.CASH) {
-        if (sale.status === SaleStatus.COMPLETED) {
-          cashSales += Number(sale.grandTotal);
-        } else if (sale.status === SaleStatus.PARTIALLY_REFUNDED || sale.status === SaleStatus.REFUNDED) {
-          cashSales += Number(sale.grandTotal);
-          // calculate cash refund portion
-          for (const item of sale.saleItems) {
-            if (item.refundedQty > 0) {
-              const itemPrice = Number(item.unitPrice) * item.refundedQty;
-              // Add approximate tax
-              cashRefunds += itemPrice;
-            }
-          }
-        }
-      }
-    }
-
-    const expectedCash = openingCash + cashSales - cashRefunds;
-    const actualCash = dto.actualCash;
+    const expectedCash = expectedCashForSales(
+      shift.openingCash,
+      shift.sales.map((sale) => ({
+        paymentMethod: sale.paymentMethod,
+        grandTotal: sale.grandTotal,
+        saleItems: sale.saleItems,
+      })),
+    );
+    const actualCash = BigInt(dto.actualCash);
     const variance = actualCash - expectedCash;
     const closedAt = new Date();
 
@@ -97,8 +95,8 @@ export class ShiftsService {
       where: { id: shiftId },
       data: {
         closedAt,
-        expectedCash: BigInt(expectedCash),
-        actualCash: BigInt(actualCash),
+        expectedCash,
+        actualCash,
       },
     });
 
@@ -108,19 +106,20 @@ export class ShiftsService {
       openingCash: Number(updated.openingCash),
       expectedCash: Number(updated.expectedCash),
       actualCash: Number(updated.actualCash),
-      variance,
+      variance: Number(variance),
     };
   }
 
-  async findAll(query: QueryShiftDto) {
+  async findAll(query: QueryShiftDto, user?: RequestUser) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, any> = {};
-    if (query.storeId) {
-      where.storeId = query.storeId;
-    }
+    const scope = user ? resolveStoreScope(user, query.storeId) : undefined;
+
+    const where: Record<string, any> = {
+      ...(scope ? storeScopeWhere(scope) : query.storeId ? { storeId: query.storeId } : {}),
+    };
 
     const [total, items] = await Promise.all([
       this.prisma.shift.count({ where }),

@@ -3,26 +3,34 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  ConflictException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProcessRefundDto, QuerySaleDto } from './dto/sale.dto';
 import { Role, SaleStatus, StockLedgerReason } from '@prisma/client';
 import { comparePin } from '../../common/utils/hash.util';
-import { calculateTaxBps } from '../../common/utils/currency.util';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
+import {
+  assertStoreInScope,
+  resolveStoreScope,
+  storeScopeWhere,
+} from '../../common/utils/store-scope.util';
 
 @Injectable()
 export class SalesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: QuerySaleDto) {
+  async findAll(query: QuerySaleDto, user?: RequestUser) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, any> = {};
-    if (query.storeId) {
-      where.storeId = query.storeId;
-    }
+    const scope = user ? resolveStoreScope(user, query.storeId) : undefined;
+
+    const where: Record<string, any> = {
+      ...(scope ? storeScopeWhere(scope) : query.storeId ? { storeId: query.storeId } : {}),
+    };
     if (query.status) {
       where.status = query.status;
     }
@@ -82,7 +90,7 @@ export class SalesService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: RequestUser) {
     const sale = await this.prisma.sale.findUnique({
       where: { id },
       include: {
@@ -94,6 +102,13 @@ export class SalesService {
 
     if (!sale) {
       throw new NotFoundException(`Sale with ID ${id} not found`);
+    }
+
+    if (user) {
+      assertStoreInScope(resolveStoreScope(user), sale.storeId);
+      if (user.role === Role.CASHIER && sale.cashierId !== user.id) {
+        throw new NotFoundException(`Sale with ID ${id} not found`);
+      }
     }
 
     return {
@@ -123,82 +138,162 @@ export class SalesService {
     };
   }
 
-  async processRefund(saleId: string, currentUserId: string, dto: ProcessRefundDto) {
-    // 1. Fetch sale with items & store
+  async processRefund(saleId: string, user: RequestUser, dto: ProcessRefundDto) {
     const sale = await this.prisma.sale.findUnique({
       where: { id: saleId },
-      include: {
-        store: true,
-        saleItems: true,
-      },
+      include: { saleItems: true },
     });
 
     if (!sale) {
       throw new NotFoundException(`Sale with ID ${saleId} not found`);
     }
 
-    if (sale.status === SaleStatus.REFUNDED) {
-      throw new BadRequestException('This sale has already been fully refunded');
+    assertStoreInScope(resolveStoreScope(user), sale.storeId);
+    if (user.role === Role.CASHIER && sale.cashierId !== user.id) {
+      throw new NotFoundException(`Sale with ID ${saleId} not found`);
     }
 
-    // 2. Verify manager PIN against managers/owners assigned to this store
+    await this.verifyManagerPin(dto.managerPin, sale.storeId);
+
+    return this.executeRefund({
+      saleId,
+      actorUserId: user.id,
+      items: dto.items,
+      reason: dto.reason,
+      idempotencyKey: dto.idempotencyKey,
+    });
+  }
+
+  /**
+   * Applies a refund that has already been authorized (online PIN or a signed
+   * offline grant). Shared by the REST endpoint and the sync refund command.
+   */
+  async applyAuthorizedRefund(params: {
+    saleId: string;
+    actorUserId: string;
+    items: Array<{ saleItemId: string; refundQty: number }>;
+    reason?: string;
+    idempotencyKey?: string;
+  }) {
+    return this.executeRefund(params);
+  }
+
+  private async verifyManagerPin(pin: string, storeId: string): Promise<void> {
     const managers = await this.prisma.user.findMany({
       where: {
         isActive: true,
         role: { in: [Role.MANAGER, Role.OWNER] },
         OR: [
           { role: Role.OWNER },
-          { userStores: { some: { storeId: sale.storeId } } },
+          { userStores: { some: { storeId } } },
         ],
       },
     });
 
-    let authorizedManager: { id: string; name: string } | null = null;
     for (const m of managers) {
-      if (m.pinHash) {
-        const matches = await comparePin(dto.managerPin, m.pinHash);
-        if (matches) {
-          authorizedManager = { id: m.id, name: m.name };
-          break;
-        }
+      if (m.pinHash && (await comparePin(pin, m.pinHash))) {
+        return;
       }
     }
 
-    if (!authorizedManager) {
-      throw new UnauthorizedException('Invalid manager PIN for this store');
+    throw new UnauthorizedException('Invalid manager PIN for this store');
+  }
+
+  private async executeRefund(params: {
+    saleId: string;
+    actorUserId: string;
+    items: Array<{ saleItemId: string; refundQty: number }>;
+    reason?: string;
+    idempotencyKey?: string;
+  }) {
+    const { saleId, actorUserId, reason, idempotencyKey } = params;
+
+    // Aggregate duplicate sale-item ids so two entries cannot each pass the
+    // remaining-quantity check.
+    const requested = new Map<string, number>();
+    for (const item of params.items ?? []) {
+      if (!item?.saleItemId || !Number.isInteger(item.refundQty) || item.refundQty <= 0) {
+        throw new BadRequestException('Each refund item requires a positive integer quantity');
+      }
+      requested.set(item.saleItemId, (requested.get(item.saleItemId) ?? 0) + item.refundQty);
     }
 
-    // 3. Process refund inside atomic transaction
+    if (requested.size === 0) {
+      throw new BadRequestException('A refund must include at least one item');
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      let refundedSubtotal = 0n;
-      let totalItemsQty = 0;
-      let totalRefundedQty = 0;
+      if (idempotencyKey) {
+        const existing = await tx.refund.findUnique({ where: { idempotencyKey } });
+        if (existing) {
+          const sale = await tx.sale.findUnique({ where: { id: existing.saleId } });
+          return {
+            saleId: existing.saleId,
+            status: sale?.status ?? SaleStatus.PARTIALLY_REFUNDED,
+            refundedAmount: Number(existing.amount),
+            idempotent: true,
+          };
+        }
+      }
 
-      for (const reqItem of dto.items) {
-        const saleItem = sale.saleItems.find((i) => i.id === reqItem.saleItemId);
+      const sale = await tx.sale.findUnique({
+        where: { id: saleId },
+        include: { saleItems: true },
+      });
+
+      if (!sale) {
+        throw new NotFoundException(`Sale with ID ${saleId} not found`);
+      }
+
+      let totalRefundAmount = 0n;
+
+      for (const [saleItemId, refundQty] of requested) {
+        const saleItem = sale.saleItems.find((i) => i.id === saleItemId);
         if (!saleItem) {
-          throw new NotFoundException(`Sale item with ID ${reqItem.saleItemId} not found in this sale`);
-        }
-
-        const remainingRefundable = saleItem.qty - saleItem.refundedQty;
-        if (reqItem.refundQty <= 0) {
-          throw new BadRequestException('Refund quantity must be greater than zero');
-        }
-        if (reqItem.refundQty > remainingRefundable) {
-          throw new BadRequestException(
-            `Cannot refund ${reqItem.refundQty} units for item ${saleItem.productNameSnapshot}. Only ${remainingRefundable} refundable.`,
+          throw new NotFoundException(
+            `Sale item with ID ${saleItemId} not found in this sale`,
           );
         }
 
-        // Increment sale item refunded_qty
-        await tx.saleItem.update({
-          where: { id: saleItem.id },
+        const remaining = saleItem.qty - saleItem.refundedQty;
+        if (refundQty > remaining) {
+          throw new BadRequestException(
+            `Cannot refund ${refundQty} units for item ${saleItem.productNameSnapshot}. Only ${remaining} refundable.`,
+          );
+        }
+
+        const newRefundedQty = saleItem.refundedQty + refundQty;
+
+        // Immutable per-line total; fall back to unit price for legacy rows.
+        const lineTotal =
+          saleItem.lineTotal > 0n
+            ? saleItem.lineTotal
+            : saleItem.unitPrice * BigInt(saleItem.qty);
+
+        // Exact proportional allocation: the final unit always settles any
+        // rounding residue so repeated partial refunds sum to lineTotal.
+        const targetRefundedAmount =
+          newRefundedQty >= saleItem.qty
+            ? lineTotal
+            : (lineTotal * BigInt(newRefundedQty)) / BigInt(saleItem.qty);
+
+        const deltaAmount = targetRefundedAmount - saleItem.refundedAmount;
+
+        // Optimistic concurrency: only commit if refundedQty is unchanged.
+        const updated = await tx.saleItem.updateMany({
+          where: { id: saleItem.id, refundedQty: saleItem.refundedQty },
           data: {
-            refundedQty: { increment: reqItem.refundQty },
+            refundedQty: newRefundedQty,
+            refundedAmount: targetRefundedAmount,
           },
         });
 
-        // Restore store inventory stock_on_hand
+        if (updated.count === 0) {
+          throw new ConflictException(
+            'This sale item was refunded concurrently; reload and retry',
+          );
+        }
+
         await tx.storeInventory.upsert({
           where: {
             storeId_productId: {
@@ -206,59 +301,61 @@ export class SalesService {
               productId: saleItem.productId,
             },
           },
-          update: {
-            stockOnHand: { increment: reqItem.refundQty },
-          },
+          update: { stockOnHand: { increment: refundQty } },
           create: {
             storeId: sale.storeId,
             productId: saleItem.productId,
-            stockOnHand: reqItem.refundQty,
+            stockOnHand: refundQty,
             priceOverride: null,
           },
         });
 
-        // Insert REFUND entry in stock_ledger
         await tx.stockLedger.create({
           data: {
             storeId: sale.storeId,
             productId: saleItem.productId,
-            deltaQty: reqItem.refundQty,
+            deltaQty: refundQty,
             reason: StockLedgerReason.REFUND,
             referenceId: sale.id,
-            note: dto.reason ? `Refund: ${dto.reason}` : `Refund for receipt ${sale.receiptNo}`,
-            createdBy: currentUserId,
+            note: reason
+              ? `Refund: ${reason}`
+              : `Refund for receipt ${sale.receiptNo}`,
+            createdBy: actorUserId,
           },
         });
 
-        refundedSubtotal += saleItem.unitPrice * BigInt(reqItem.refundQty);
+        totalRefundAmount += deltaAmount;
       }
 
-      // Re-evaluate total refund status across all items
       const updatedItems = await tx.saleItem.findMany({
         where: { saleId: sale.id },
       });
-
-      for (const it of updatedItems) {
-        totalItemsQty += it.qty;
-        totalRefundedQty += it.refundedQty;
-      }
-
-      const newStatus =
-        totalRefundedQty >= totalItemsQty ? SaleStatus.REFUNDED : SaleStatus.PARTIALLY_REFUNDED;
+      const fullyRefunded = updatedItems.every((it) => it.refundedQty >= it.qty);
+      const newStatus = fullyRefunded
+        ? SaleStatus.REFUNDED
+        : SaleStatus.PARTIALLY_REFUNDED;
 
       await tx.sale.update({
         where: { id: sale.id },
         data: { status: newStatus },
       });
 
-      // Calculate proportional tax for refunded amount
-      const refundedTax = calculateTaxBps(refundedSubtotal, sale.store.taxRateBps);
-      const refundedAmount = Number(refundedSubtotal + refundedTax);
+      await tx.refund.create({
+        data: {
+          id: randomUUID(),
+          saleId: sale.id,
+          storeId: sale.storeId,
+          createdBy: actorUserId,
+          amount: totalRefundAmount,
+          reason: reason ?? null,
+          idempotencyKey: idempotencyKey ?? null,
+        },
+      });
 
       return {
         saleId: sale.id,
         status: newStatus,
-        refundedAmount,
+        refundedAmount: Number(totalRefundAmount),
       };
     });
   }

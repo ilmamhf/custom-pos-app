@@ -29,15 +29,21 @@ export class SalesController {
   @Get()
   @Roles(Role.OWNER, Role.MANAGER)
   @ApiOperation({ summary: 'Get paginated sales receipts history' })
-  async findAll(@Query() query: QuerySaleDto) {
-    return this.salesService.findAll(query);
+  async findAll(
+    @CurrentUser() user: RequestUser,
+    @Query() query: QuerySaleDto,
+  ) {
+    return this.salesService.findAll(query, user);
   }
 
   @Get(':id')
   @Roles(Role.OWNER, Role.MANAGER, Role.CASHIER)
   @ApiOperation({ summary: 'Get sale details by ID' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.salesService.findOne(id);
+  async findOne(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.salesService.findOne(id, user);
   }
 
   @Post(':id/refund')
@@ -49,6 +55,6 @@ export class SalesController {
     @CurrentUser() user: RequestUser,
     @Body() dto: ProcessRefundDto,
   ) {
-    return this.salesService.processRefund(id, user.id, dto);
+    return this.salesService.processRefund(id, user, dto);
   }
 }

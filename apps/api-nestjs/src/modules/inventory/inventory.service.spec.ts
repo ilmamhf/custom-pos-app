@@ -12,6 +12,7 @@ describe('InventoryService', () => {
     storeInventory: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       upsert: jest.fn(),
     },
     stockLedger: {
@@ -76,11 +77,7 @@ describe('InventoryService', () => {
         stockOnHand: 50,
       });
 
-      mockTx.storeInventory.update.mockResolvedValueOnce({
-        storeId: fromStoreId,
-        productId,
-        stockOnHand: 35,
-      });
+      mockTx.storeInventory.updateMany.mockResolvedValueOnce({ count: 1 });
 
       mockTx.storeInventory.upsert.mockResolvedValueOnce({
         storeId: toStoreId,
@@ -104,13 +101,12 @@ describe('InventoryService', () => {
         toStoreStock: 45,
       });
 
-      // Verify source store inventory decremented
-      expect(mockTx.storeInventory.update).toHaveBeenCalledWith({
+      // Verify source store inventory decremented conditionally
+      expect(mockTx.storeInventory.updateMany).toHaveBeenCalledWith({
         where: {
-          storeId_productId: {
-            storeId: fromStoreId,
-            productId,
-          },
+          storeId: fromStoreId,
+          productId,
+          stockOnHand: { gte: 15 },
         },
         data: {
           stockOnHand: { decrement: 15 },

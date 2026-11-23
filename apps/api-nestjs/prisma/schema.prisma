@@ -63,12 +63,14 @@ model User {
   pinHash      String?  @map("pin_hash") @db.Text
   role         Role
   isActive     Boolean  @default(true) @map("is_active")
+  tokenVersion Int      @default(0) @map("token_version")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   userStores   UserStore[]
   shifts       Shift[]
   sales        Sale[]
   stockLedgers StockLedger[]
+  refunds      Refund[]
 
   @@map("users")
 }
@@ -165,6 +167,7 @@ model Sale {
   taxTotal      BigInt        @map("tax_total")
   discountTotal BigInt        @default(0) @map("discount_total")
   grandTotal    BigInt        @map("grand_total")
+  taxRateBps    Int           @default(0) @map("tax_rate_bps")
   paymentMethod PaymentMethod @map("payment_method")
   status        SaleStatus
   createdAt     DateTime      @map("created_at") @db.Timestamptz
@@ -173,6 +176,7 @@ model Sale {
   shift     Shift      @relation(fields: [shiftId], references: [id])
   cashier   User       @relation(fields: [cashierId], references: [id])
   saleItems SaleItem[]
+  refunds   Refund[]
 
   @@index([storeId])
   @@map("sales")
@@ -186,9 +190,31 @@ model SaleItem {
   unitPrice           BigInt  @map("unit_price")
   qty                 Int
   refundedQty         Int     @default(0) @map("refunded_qty")
+  grossAmount         BigInt  @default(0) @map("gross_amount")
+  discountAmount      BigInt  @default(0) @map("discount_amount")
+  taxAmount           BigInt  @default(0) @map("tax_amount")
+  lineTotal           BigInt  @default(0) @map("line_total")
+  refundedAmount      BigInt  @default(0) @map("refunded_amount")
 
   sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 
   @@map("sale_items")
+}
+
+model Refund {
+  id             String   @id @db.Uuid
+  saleId         String   @map("sale_id") @db.Uuid
+  storeId        String   @map("store_id") @db.Uuid
+  createdBy      String   @map("created_by") @db.Uuid
+  amount         BigInt
+  reason         String?  @db.Text
+  idempotencyKey String?  @unique @map("idempotency_key") @db.VarChar(100)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  sale    Sale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  creator User  @relation(fields: [createdBy], references: [id])
+
+  @@index([saleId])
+  @@map("refunds")
 }

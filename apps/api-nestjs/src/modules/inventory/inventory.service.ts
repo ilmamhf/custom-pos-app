@@ -12,21 +12,26 @@ import {
 } from './dto/inventory.dto';
 import { StockLedgerReason } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
+import {
+  resolveStoreScope,
+  storeScopeWhere,
+} from '../../common/utils/store-scope.util';
 
 @Injectable()
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: QueryInventoryDto) {
+  async findAll(query: QueryInventoryDto, user?: RequestUser) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, any> = {};
+    const scope = user ? resolveStoreScope(user, query.storeId) : undefined;
 
-    if (query.storeId) {
-      where.storeId = query.storeId;
-    }
+    const where: Record<string, any> = {
+      ...(scope ? storeScopeWhere(scope) : query.storeId ? { storeId: query.storeId } : {}),
+    };
 
     if (query.negativeOnly) {
       where.stockOnHand = { lt: 0 };
@@ -43,7 +48,7 @@ export class InventoryService {
       };
     }
 
-    const [total, items] = await Promise.all([
+    const [total, items, negativeCount] = await Promise.all([
       this.prisma.storeInventory.count({ where }),
       this.prisma.storeInventory.findMany({
         where,
@@ -58,6 +63,9 @@ export class InventoryService {
             select: { id: true, sku: true, name: true, basePrice: true },
           },
         },
+      }),
+      this.prisma.storeInventory.count({
+        where: { ...where, stockOnHand: { lt: 0 } },
       }),
     ]);
 
@@ -81,18 +89,20 @@ export class InventoryService {
       page,
       limit,
       totalPages: Math.ceil(total / limit),
+      negativeCount,
       items: formatted,
     };
   }
 
-  async adjust(userId: string, dto: AdjustInventoryDto) {
+  async adjust(userId: string, dto: AdjustInventoryDto, canonicalStoreId?: string) {
+    const storeId = canonicalStoreId ?? dto.storeId;
     const [store, product] = await Promise.all([
-      this.prisma.store.findUnique({ where: { id: dto.storeId } }),
+      this.prisma.store.findUnique({ where: { id: storeId } }),
       this.prisma.product.findUnique({ where: { id: dto.productId } }),
     ]);
 
     if (!store) {
-      throw new NotFoundException(`Store with ID ${dto.storeId} not found`);
+      throw new NotFoundException(`Store with ID ${storeId} not found`);
     }
     if (!product) {
       throw new NotFoundException(`Product with ID ${dto.productId} not found`);
@@ -103,7 +113,7 @@ export class InventoryService {
       const updatedInventory = await tx.storeInventory.upsert({
         where: {
           storeId_productId: {
-            storeId: dto.storeId,
+            storeId,
             productId: dto.productId,
           },
         },
@@ -111,7 +121,7 @@ export class InventoryService {
           stockOnHand: { increment: dto.deltaQty },
         },
         create: {
-          storeId: dto.storeId,
+          storeId,
           productId: dto.productId,
           stockOnHand: dto.deltaQty,
           priceOverride: null,
@@ -121,7 +131,7 @@ export class InventoryService {
       // 2. Append immutable row to stock_ledger
       await tx.stockLedger.create({
         data: {
-          storeId: dto.storeId,
+          storeId,
           productId: dto.productId,
           deltaQty: dto.deltaQty,
           reason: dto.reason,
@@ -164,7 +174,7 @@ export class InventoryService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // 1. Verify source inventory
+      // 1. Read source inventory for the response and ledger note.
       const sourceInv = await tx.storeInventory.findUnique({
         where: {
           storeId_productId: {
@@ -182,18 +192,24 @@ export class InventoryService {
 
       const transferId = randomUUID();
 
-      // 2. Decrement source store inventory & record TRANSFER_OUT
-      const updatedFrom = await tx.storeInventory.update({
+      // 2. Conditionally decrement the source so a concurrent transfer cannot
+      // push it below zero under READ COMMITTED isolation.
+      const decremented = await tx.storeInventory.updateMany({
         where: {
-          storeId_productId: {
-            storeId: dto.fromStoreId,
-            productId: dto.productId,
-          },
+          storeId: dto.fromStoreId,
+          productId: dto.productId,
+          stockOnHand: { gte: dto.qty },
         },
         data: {
           stockOnHand: { decrement: dto.qty },
         },
       });
+
+      if (decremented.count === 0) {
+        throw new BadRequestException(
+          `Insufficient stock at source store (available: ${sourceInv.stockOnHand}, requested: ${dto.qty})`,
+        );
+      }
 
       await tx.stockLedger.create({
         data: {
@@ -240,22 +256,23 @@ export class InventoryService {
 
       return {
         transferId,
-        fromStoreStock: updatedFrom.stockOnHand,
+        fromStoreStock: sourceInv.stockOnHand - dto.qty,
         toStoreStock: updatedTo.stockOnHand,
       };
     });
   }
 
-  async getLedger(query: QueryLedgerDto) {
+  async getLedger(query: QueryLedgerDto, user?: RequestUser) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, any> = {};
+    const scope = user ? resolveStoreScope(user, query.storeId) : undefined;
 
-    if (query.storeId) {
-      where.storeId = query.storeId;
-    }
+    const where: Record<string, any> = {
+      ...(scope ? storeScopeWhere(scope) : query.storeId ? { storeId: query.storeId } : {}),
+    };
+
     if (query.productId) {
       where.productId = query.productId;
     }

@@ -6,7 +6,8 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 
 const HTTP_STATUS_NAMES: Record<number, string> = {
   [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
@@ -25,6 +26,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Internal server error';
@@ -46,9 +48,30 @@ export class HttpExceptionFilter implements ExceptionFilter {
           error = body.error.toUpperCase().replace(/\s+/g, '_');
         }
       }
-    } else if (exception instanceof Error) {
-      this.logger.error(`Unhandled exception: ${exception.message}`, exception.stack);
-      message = exception.message;
+    } else {
+      // Never expose library/database messages to clients. Log the original
+      // server-side with a correlation id the operator can look up.
+      const correlationId = randomUUID();
+      if (exception instanceof Error) {
+        this.logger.error(
+          `[${correlationId}] Unhandled exception on ${request?.method} ${request?.url}: ${exception.message}`,
+          exception.stack,
+        );
+      } else {
+        this.logger.error(
+          `[${correlationId}] Unhandled non-error exception on ${request?.method} ${request?.url}`,
+        );
+      }
+      message = 'Internal server error';
+      error = 'INTERNAL_SERVER_ERROR';
+      response.status(status).json({
+        statusCode: status,
+        error,
+        message,
+        correlationId,
+        timestamp: new Date().toISOString(),
+      });
+      return;
     }
 
     response.status(status).json({

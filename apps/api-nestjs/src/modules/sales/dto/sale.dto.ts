@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   IsArray,
   IsEnum,
   IsInt,
@@ -38,8 +39,16 @@ export class ProcessRefundDto {
   @IsString()
   reason?: string;
 
+  @ApiPropertyOptional({
+    description: 'Idempotency key so a retried refund is applied only once',
+  })
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
+
   @ApiProperty({ type: [RefundItemDto] })
   @IsArray()
+  @ArrayMinSize(1, { message: 'A refund must include at least one item' })
   @ValidateNested({ each: true })
   @Type(() => RefundItemDto)
   items!: RefundItemDto[];

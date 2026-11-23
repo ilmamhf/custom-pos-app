@@ -1,30 +1,35 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ReportSummaryQueryDto } from './dto/report.dto';
-import { SaleStatus } from '@prisma/client';
-import { calculateTaxBps } from '../../common/utils/currency.util';
+import { RequestUser } from '../../common/decorators/current-user.decorator';
+import {
+  resolveStoreScope,
+  storeScopeWhere,
+} from '../../common/utils/store-scope.util';
 
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary(query: ReportSummaryQueryDto) {
-    const where: Record<string, any> = {};
+  async getSummary(query: ReportSummaryQueryDto, user?: RequestUser) {
+    const scope = user ? resolveStoreScope(user, query.storeId) : undefined;
 
-    if (query.storeId) {
-      where.storeId = query.storeId;
-    }
+    const where: Record<string, any> = {
+      ...(scope ? storeScopeWhere(scope) : query.storeId ? { storeId: query.storeId } : {}),
+    };
 
-    if (query.from || query.to) {
-      where.createdAt = {};
-      if (query.from) where.createdAt.gte = new Date(query.from);
-      if (query.to) where.createdAt.lte = new Date(query.to);
-    }
+    // Half-open [from, to) with a bounded default so "today" cannot include
+    // future-dated rows when the caller omits the upper bound.
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : new Date();
+    where.createdAt = {
+      ...(from ? { gte: from } : {}),
+      lt: to,
+    };
 
     const sales = await this.prisma.sale.findMany({
       where,
       include: {
-        store: { select: { taxRateBps: true } },
         saleItems: true,
       },
     });
@@ -37,18 +42,18 @@ export class ReportsService {
     for (const sale of sales) {
       grossSales += sale.grandTotal;
 
-      // Payment breakdown
       const currentPm = paymentMap.get(sale.paymentMethod) || { total: 0n, count: 0 };
       currentPm.total += sale.grandTotal;
       currentPm.count += 1;
       paymentMap.set(sale.paymentMethod, currentPm);
 
-      // Refund calculation & Top products
       for (const item of sale.saleItems) {
         if (item.refundedQty > 0) {
-          const itemRefundSubtotal = item.unitPrice * BigInt(item.refundedQty);
-          const itemRefundTax = calculateTaxBps(itemRefundSubtotal, sale.store.taxRateBps);
-          refundTotal += itemRefundSubtotal + itemRefundTax;
+          const refunded =
+            item.refundedAmount > 0n
+              ? item.refundedAmount
+              : item.unitPrice * BigInt(item.refundedQty);
+          refundTotal += refunded;
         }
 
         const netQty = item.qty - item.refundedQty;
@@ -59,7 +64,12 @@ export class ReportsService {
             revenue: 0n,
           };
           curProd.qtySold += netQty;
-          curProd.revenue += item.unitPrice * BigInt(netQty);
+          // Net revenue from the immutable line snapshot.
+          const lineRevenue =
+            item.lineTotal > 0n
+              ? item.lineTotal - item.refundedAmount
+              : item.unitPrice * BigInt(netQty);
+          curProd.revenue += lineRevenue > 0n ? lineRevenue : 0n;
           productMap.set(item.productId, curProd);
         }
       }

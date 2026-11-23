@@ -12,6 +12,8 @@
     "start:prod": "node dist/main.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
     "data:import": "ts-node scripts/import-products.ts --apply",
     "data:import:dry-run": "ts-node scripts/import-products.ts --dry-run",

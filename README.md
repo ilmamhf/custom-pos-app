@@ -77,13 +77,13 @@ cd apps\api-nestjs
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 npm ci
 npm run prisma:generate
-npm run prisma:push
+npm run prisma:migrate:deploy
 npm run prisma:seed
 ```
 
 On macOS or Linux, use `test -f .env || cp .env.example .env`. Keeping an existing `.env` avoids overwriting local credentials or port changes.
 
-`prisma:push` creates or updates the application tables. `prisma:seed` adds the stores, accounts, products, and starting inventory.
+`prisma:migrate:deploy` applies the committed migration history in `prisma/migrations`. `prisma:seed` adds the stores, accounts, products, and starting inventory.
 
 Start the API:
 
@@ -308,11 +308,25 @@ Run these commands only when you intend to discard local database data:
 docker compose down -v
 docker compose up -d postgres
 cd apps\api-nestjs
-npm run prisma:push
+npm run prisma:migrate:deploy
 npm run prisma:seed
 ```
 
 Then restart the API, React Admin, and Flutter POS.
+
+### Existing database created with `prisma db push`
+
+The repository now carries a baseline migration. A database created by
+`db push` has no `_prisma_migrations` history, so `migrate deploy` will report
+that the schema is not empty. For a disposable local database, run
+`docker compose down -v` and apply the migration from scratch. To preserve an
+existing development database, baseline it once:
+
+```powershell
+cd apps\api-nestjs
+npx prisma migrate resolve --applied 20261123000000_init
+npm run prisma:migrate:deploy
+```
 
 ## Current integration boundaries
 

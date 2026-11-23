@@ -112,14 +112,15 @@ node dist/main.js
 cd ../pos-flutter
 patrol test --device chrome `
   --web-headless --web-video=on --web-slow-mo=250 `
-  --dart-define=API_BASE_URL=http://localhost:3100/api/v1 `
-  --web-results-dir=test-results `
-  --web-report-dir=playwright-report
+  --dart-define=API_BASE_URL=http://localhost:3100/api/v1
 ```
 
 - Report: `apps/pos-flutter/playwright-report/index.html` (video embedded).
 - Video: `--web-video=on` (or `retain-on-failure`); `--web-slow-mo` makes it
   watchable. Patrol auto-installs Node/Playwright deps on first run.
+  Leave `--web-results-dir`/`--web-report-dir` unset: Patrol then uses the
+  absolute app-relative defaults, whereas relative overrides resolve from its
+  internal web-runner directory.
 - Export recordings:
   ```powershell
   cd apps/pos-flutter

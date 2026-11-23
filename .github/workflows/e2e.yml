@@ -266,9 +266,7 @@ jobs:
             --web-headless \
             --web-video=on \
             --web-workers=1 \
-            --dart-define=API_BASE_URL=http://localhost:3100/api/v1 \
-            --web-results-dir=test-results \
-            --web-report-dir=playwright-report
+            --dart-define=API_BASE_URL=http://localhost:3100/api/v1
       - name: Export Patrol videos
         if: always()
         working-directory: apps/pos-flutter

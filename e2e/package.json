@@ -6,6 +6,7 @@
     "db:setup": "node scripts/setup-db.mjs",
     "test": "node scripts/setup-db.mjs && playwright test",
     "test:admin": "node scripts/setup-db.mjs && playwright test --project=admin",
+    "videos:export": "node scripts/export-videos.mjs",
     "install:browsers": "playwright install chromium"
   },
   "devDependencies": {

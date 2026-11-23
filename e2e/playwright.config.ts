@@ -34,14 +34,17 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
+  outputDir: './test-results',
   reporter: process.env.CI
     ? [['list'], ['html', { open: 'never' }]]
     : [['list']],
   use: {
     baseURL: ADMIN_BASE_URL,
+    // One WebM per test, embedded in the HTML report and exportable via
+    // `npm run videos:export`.
+    video: { mode: 'on', size: { width: 1280, height: 720 } },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
   },
   projects: [
     {

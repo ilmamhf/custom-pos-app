@@ -258,3 +258,30 @@ The recheck found and fixed four additional gaps:
 
 Still open after recheck: M-02, M-16, R-01, R-03, R-06; partial: H-02, H-08,
 H-13, M-04, M-07, R-02, R-04; deferred: M-08/R-05, D-01, D-02.
+
+## Live-test finding (2026-11-23) — POS sale did not reach Admin
+
+A real POS sale did not change stock in React Admin. Investigation:
+
+- The database contained the cashier's shift but none of their sales, so the
+  sale never reached the server.
+- `SyncNotifier._maybeSync` gated the periodic sync on
+  `pendingCount + failedCount`, but counts were refreshed only on init,
+  connectivity change, and sync completion. A newly enqueued sale left
+  `pendingCount` at its stale value (often 0), so the 30s timer skipped the push
+  until an app reload or connectivity event. There was also no UI or event that
+  called `syncNow()` after checkout.
+- React Admin also cached data for 60s with `refetchOnWindowFocus: false`, so an
+  already-open view would not notice a server-side change promptly.
+
+Fixes:
+
+- `_maybeSync` refreshes outbox counts before evaluating the gate.
+- New `requestSync()` (refresh + push) is invoked immediately after checkout,
+  shift open/close, and refund enqueue.
+- React `staleTime` is 15s with `refetchOnWindowFocus: true`; inventory/sales
+  poll every 15s, ledger/reports every 30s.
+
+Note: the Flutter "Open offline demo" path deliberately never syncs; a real
+sale must come from a logged-in session. Existing pending outbox rows will push
+on the next app start or within the timer interval after this build is loaded.

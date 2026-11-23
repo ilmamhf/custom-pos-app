@@ -108,10 +108,23 @@ class SyncNotifier extends StateNotifier<SyncStatusState> {
   }
 
   Future<void> _maybeSync() async {
-    if (!state.isOnline ||
-        state.isSyncing ||
-        (state.pendingCount + state.failedCount) == 0 ||
-        _db == null) return;
+    if (_db == null || !state.isOnline || state.isSyncing) return;
+    // Counts are only refreshed on init/connectivity/sync completion. A new
+    // outbox row (sale, shift, refund) must be visible before gating, or the
+    // timer would skip syncing forever on a stale zero count.
+    await _refreshCounts();
+    if (!mounted || _disposed) return;
+    if ((state.pendingCount + state.failedCount) == 0) return;
+    await syncNow();
+  }
+
+  /// Refresh the outbox counts and push immediately when online.
+  ///
+  /// Called after checkout/shift/refund events so a sale reaches the server
+  /// without waiting for the periodic timer or a connectivity change.
+  Future<void> requestSync() async {
+    if (_db == null || _dio == null) return;
+    await _refreshCounts();
     await syncNow();
   }
 

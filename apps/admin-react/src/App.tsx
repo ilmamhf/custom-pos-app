@@ -21,8 +21,11 @@ import { SettingsPage } from '@/features/settings/SettingsPage'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60, // 1 minute
-      refetchOnWindowFocus: false,
+      // POS sales are synced asynchronously; keep the admin view fresh when
+      // the operator returns to the tab and after short-lived staleness.
+      staleTime: 1000 * 15,
+      refetchOnWindowFocus: true,
+      refetchOnMount: true,
       retry: 1,
     },
   },

@@ -51,6 +51,7 @@ export function useUpdateStore() {
 export function useReportSummary(storeId?: string, from?: string, to?: string) {
   return useQuery({
     queryKey: queryKeys.reports.summary(storeId, from, to),
+    refetchInterval: 30000,
     queryFn: async () => {
       const params: Record<string, string> = {}
       if (storeId) params.storeId = storeId
@@ -143,6 +144,7 @@ export function useInventory(
 ) {
   return useQuery({
     queryKey: queryKeys.inventory.list(storeId, lowStockOnly, negativeOnly, page, limit),
+    refetchInterval: 15000,
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }
       if (storeId) params.storeId = storeId
@@ -195,6 +197,7 @@ export function useStockLedger(
 ) {
   return useQuery({
     queryKey: queryKeys.inventory.ledger(storeId, productId, reason, page, limit),
+    refetchInterval: 30000,
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }
       if (storeId) params.storeId = storeId
@@ -220,6 +223,7 @@ export function useSales(
 ) {
   return useQuery({
     queryKey: queryKeys.sales.list(storeId, from, to, status, page, limit),
+    refetchInterval: 15000,
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }
       if (storeId) params.storeId = storeId

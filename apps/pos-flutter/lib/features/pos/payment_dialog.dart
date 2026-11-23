@@ -1,5 +1,7 @@
 /// Payment dialog: choose method, enter cash, complete the offline sale.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,7 @@ import '../../core/database/tables/local_sales.dart';
 import '../../core/utils/currency.dart';
 import '../catalog/catalog_provider.dart';
 import '../shift/shift_provider.dart';
+import '../sync/sync_provider.dart';
 import 'cart_math.dart';
 import 'cart_provider.dart';
 import 'checkout_service.dart';
@@ -118,6 +121,9 @@ class _PaymentDialogState extends ConsumerState<PaymentDialog> {
       ref.read(cartProvider.notifier).clear();
       ref.invalidate(catalogProvider);
       await ref.read(shiftProvider.notifier).refresh();
+
+      // Push the new sale immediately instead of waiting for the 30s timer.
+      unawaited(ref.read(syncProvider.notifier).requestSync());
 
       if (!mounted) return;
       Navigator.of(context).pop(

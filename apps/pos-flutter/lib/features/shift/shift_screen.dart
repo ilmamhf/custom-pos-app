@@ -1,11 +1,14 @@
 /// Shift management screen - open/close shift.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../features/auth/auth_provider.dart';
+import '../sync/sync_provider.dart';
 import 'shift_provider.dart';
 
 /// Main shift screen - shows open shift or open/close shift actions.
@@ -171,6 +174,9 @@ class ShiftScreen extends ConsumerWidget {
                     amount,
                     syncToServer: !ref.read(authProvider).isDemo,
                   );
+              if (!ref.read(authProvider).isDemo) {
+                unawaited(ref.read(syncProvider.notifier).requestSync());
+              }
               if (!context.mounted) return;
               final error = ref.read(shiftProvider).error;
               if (error != null) {
@@ -250,6 +256,9 @@ class ShiftScreen extends ConsumerWidget {
                     actualCash: amount,
                     syncToServer: !ref.read(authProvider).isDemo,
                   );
+              if (!ref.read(authProvider).isDemo) {
+                unawaited(ref.read(syncProvider.notifier).requestSync());
+              }
               if (!context.mounted) return;
               final state = ref.read(shiftProvider);
               final message = state.error ??

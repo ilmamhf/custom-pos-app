@@ -8,6 +8,7 @@
 /// 5. Locally: increment stock, increment refunded_qty, update sale status.
 /// 6. Enqueue `SYNC_REFUND` outbox entry (future Phase 5+).
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -19,6 +20,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/uuid_helper.dart';
 import '../auth/pin_dialog.dart';
 import '../shift/shift_provider.dart';
+import '../sync/sync_provider.dart';
 
 class RefundScreen extends ConsumerStatefulWidget {
   const RefundScreen({super.key, required this.saleId});
@@ -194,6 +196,9 @@ class _RefundScreenState extends ConsumerState<RefundScreen> {
         ]);
       });
       await db.flush();
+
+      // Push the refund command immediately when the session is online.
+      unawaited(ref.read(syncProvider.notifier).requestSync());
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

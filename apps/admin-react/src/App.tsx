@@ -4,7 +4,8 @@ import {
   Route,
   Navigate,
 } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { AuthProvider } from '@/context/AuthContext'
 import { StoreProvider } from '@/context/StoreContext'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
@@ -27,9 +28,33 @@ const queryClient = new QueryClient({
   },
 })
 
+/**
+ * Drops every cached query whenever the session identity changes. Combined
+ * with the session-scoped query keys this prevents one user's cached data from
+ * rendering for another after logout or an unauthorized event.
+ */
+function SessionCacheReset() {
+  const client = useQueryClient()
+
+  useEffect(() => {
+    const handler = () => client.clear()
+    window.addEventListener('auth:session-changed', handler)
+    window.addEventListener('auth:unauthorized', handler)
+    return () => {
+      window.removeEventListener('auth:session-changed', handler)
+      window.removeEventListener('auth:unauthorized', handler)
+    }
+  }, [client])
+
+  return null
+}
+
+const ADMIN_ROLES: Array<'OWNER' | 'MANAGER'> = ['OWNER', 'MANAGER']
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <SessionCacheReset />
       <AuthProvider>
         <StoreProvider>
           <BrowserRouter>
@@ -47,10 +72,38 @@ export function App() {
                 }
               >
                 <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="dashboard" element={<DashboardPage />} />
-                <Route path="sales" element={<SalesPage />} />
-                <Route path="products" element={<ProductsPage />} />
-                <Route path="inventory" element={<InventoryPage />} />
+                <Route
+                  path="dashboard"
+                  element={
+                    <RoleGuard allowedRoles={ADMIN_ROLES}>
+                      <DashboardPage />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="sales"
+                  element={
+                    <RoleGuard allowedRoles={ADMIN_ROLES}>
+                      <SalesPage />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="products"
+                  element={
+                    <RoleGuard allowedRoles={ADMIN_ROLES}>
+                      <ProductsPage />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="inventory"
+                  element={
+                    <RoleGuard allowedRoles={ADMIN_ROLES}>
+                      <InventoryPage />
+                    </RoleGuard>
+                  }
+                />
                 <Route
                   path="settings"
                   element={

@@ -20,22 +20,24 @@ export const DashboardPage: React.FC = () => {
   const { selectedStoreId, selectedStore } = useStore()
   const [preset, setPreset] = useState<DatePreset>('MONTH')
 
-  // Calculate stable dates based on preset
+  // Business-local half-open interval [start, end) sent as precise UTC
+  // timestamps. Converting local midnight with toISOString() keeps the
+  // boundary on the correct day in non-UTC zones, and an explicit upper bound
+  // stops future-dated rows from leaking into "Today".
   const { from, to } = useMemo(() => {
     const now = new Date()
-    if (preset === 'TODAY') {
-      const fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      return { from: fromDate.toISOString().split('T')[0], to: undefined }
+    if (preset === 'ALL') {
+      return { from: undefined, to: undefined }
     }
-    if (preset === 'WEEK') {
-      const fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7)
-      return { from: fromDate.toISOString().split('T')[0], to: undefined }
-    }
-    if (preset === 'MONTH') {
-      const fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30)
-      return { from: fromDate.toISOString().split('T')[0], to: undefined }
-    }
-    return { from: undefined, to: undefined }
+
+    const daysBack = preset === 'TODAY' ? 0 : preset === 'WEEK' ? 7 : 30
+    const start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - daysBack
+    )
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    return { from: start.toISOString(), to: end.toISOString() }
   }, [preset])
 
   const {

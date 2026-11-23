@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -34,6 +34,22 @@ export const StaffModal: React.FC<StaffModalProps> = ({
 
   const createMutation = useCreateUser()
 
+  const resetForm = () => {
+    setName('')
+    setEmail('')
+    setPassword('')
+    setPin('')
+    setRole('CASHIER')
+    setSelectedStoreIds([])
+    setErrorMsg(null)
+  }
+
+  // Never retain credentials or stale assignments when the dialog reopens or
+  // the operator cancels.
+  useEffect(() => {
+    if (open) resetForm()
+  }, [open])
+
   const handleStoreToggle = (storeId: string) => {
     setSelectedStoreIds((prev) =>
       prev.includes(storeId)
@@ -51,8 +67,18 @@ export const StaffModal: React.FC<StaffModalProps> = ({
       return
     }
 
-    if (role === 'MANAGER' && (!pin || pin.length < 4)) {
-      setErrorMsg('Managers require a 4-6 digit authorization PIN.')
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters.')
+      return
+    }
+
+    if (role === 'MANAGER' && !/^\d{6}$/.test(pin)) {
+      setErrorMsg('Managers require a 6-digit authorization PIN.')
+      return
+    }
+
+    if (pin && !/^\d{4,8}$/.test(pin)) {
+      setErrorMsg('PIN must be 4 to 8 digits.')
       return
     }
 
@@ -70,12 +96,8 @@ export const StaffModal: React.FC<StaffModalProps> = ({
         role,
         storeIds: selectedStoreIds,
       })
+      resetForm()
       onOpenChange(false)
-      setName('')
-      setEmail('')
-      setPassword('')
-      setPin('')
-      setSelectedStoreIds([])
     } catch (err: any) {
       setErrorMsg(err.response?.data?.message || 'Failed to create staff account.')
     }
@@ -200,7 +222,11 @@ export const StaffModal: React.FC<StaffModalProps> = ({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => {
+                resetForm()
+                onOpenChange(false)
+              }}
+              disabled={createMutation.isPending}
             >
               Cancel
             </Button>

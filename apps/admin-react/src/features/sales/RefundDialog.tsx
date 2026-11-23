@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -33,6 +33,20 @@ export const RefundDialog: React.FC<RefundDialogProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const refundMutation = useRefundSale()
+
+  const resetForm = () => {
+    setManagerPin('')
+    setReason('')
+    setItemQuantities({})
+    setErrorMessage(null)
+  }
+
+  // Clear PIN/reason/quantities whenever the dialog opens or targets a new
+  // sale, so a cancelled attempt never leaks a supervisor PIN.
+  useEffect(() => {
+    if (open) resetForm()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sale?.id])
 
   if (!sale) return null
 
@@ -82,9 +96,7 @@ export const RefundDialog: React.FC<RefundDialogProps> = ({
 
       onSuccess()
       onOpenChange(false)
-      setManagerPin('')
-      setReason('')
-      setItemQuantities({})
+      resetForm()
     } catch (err: any) {
       const msg =
         err.response?.data?.message ||
@@ -190,7 +202,10 @@ export const RefundDialog: React.FC<RefundDialogProps> = ({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => {
+                resetForm()
+                onOpenChange(false)
+              }}
               disabled={refundMutation.isPending}
             >
               Cancel

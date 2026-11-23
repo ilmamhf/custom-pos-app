@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { apiClient, setTokens, clearTokens, getAccessToken } from '@/api/client'
+import { setQuerySession } from '@/api/queries/queryKeys'
 import { User, Store, Role, AuthLoginResponse } from '@/api/types'
 
 interface AuthContextType {
@@ -18,6 +19,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const USER_STORAGE_KEY = 'pos_admin_user'
 const STORES_STORAGE_KEY = 'pos_admin_stores'
 
+function notifySessionChanged() {
+  window.dispatchEvent(new CustomEvent('auth:session-changed'))
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -25,36 +30,88 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [stores, setStores] = useState<Store[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    // Restore session on mount
-    const token = getAccessToken()
-    const storedUser = localStorage.getItem(USER_STORAGE_KEY)
-    const storedStores = localStorage.getItem(STORES_STORAGE_KEY)
+  const clearSession = () => {
+    clearTokens()
+    setUser(null)
+    setStores([])
+    setQuerySession(null)
+    localStorage.removeItem(USER_STORAGE_KEY)
+    localStorage.removeItem(STORES_STORAGE_KEY)
+    notifySessionChanged()
+  }
 
-    if (token && storedUser) {
-      try {
-        setUser(JSON.parse(storedUser))
-        if (storedStores) {
-          setStores(JSON.parse(storedStores))
+  useEffect(() => {
+    let cancelled = false
+
+    const restore = async () => {
+      const token = getAccessToken()
+      const storedUser = localStorage.getItem(USER_STORAGE_KEY)
+      const storedStores = localStorage.getItem(STORES_STORAGE_KEY)
+
+      if (!token) {
+        setIsLoading(false)
+        return
+      }
+
+      // Optimistically show the persisted snapshot while revalidating.
+      if (storedUser) {
+        try {
+          const parsedUser = JSON.parse(storedUser) as User
+          setUser(parsedUser)
+          setQuerySession(parsedUser.id)
+          if (storedStores) setStores(JSON.parse(storedStores))
+        } catch {
+          clearSession()
+          setIsLoading(false)
+          return
         }
-      } catch {
-        clearTokens()
-        localStorage.removeItem(USER_STORAGE_KEY)
-        localStorage.removeItem(STORES_STORAGE_KEY)
+      }
+
+      // In unit tests the persisted snapshot is authoritative; skip the live
+      // revalidation so tests do not depend on a running API.
+      if (import.meta.env.MODE === 'test') {
+        if (!cancelled) setIsLoading(false)
+        return
+      }
+
+      // Revalidate roles/store assignments from the server; the persisted
+      // snapshot is only a cache for the first paint.
+      try {
+        const { data } = await apiClient.get<{ user: User; stores: Store[] }>(
+          '/auth/me'
+        )
+        if (cancelled) return
+        const freshUser: User = {
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+          role: data.user.role,
+        }
+        setUser(freshUser)
+        setStores(data.stores || [])
+        setQuerySession(freshUser.id)
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(freshUser))
+        localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(data.stores || []))
+      } catch (err: any) {
+        // 401 means the session is gone; a transport failure keeps the cached
+        // snapshot so a transient outage does not sign the user out.
+        if (err?.response?.status === 401) {
+          clearSession()
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
       }
     }
-    setIsLoading(false)
 
-    // Listen to unauthorized event from Axios interceptor
+    restore()
+
     const handleUnauthorized = () => {
-      setUser(null)
-      setStores([])
-      localStorage.removeItem(USER_STORAGE_KEY)
-      localStorage.removeItem(STORES_STORAGE_KEY)
+      clearSession()
     }
 
     window.addEventListener('auth:unauthorized', handleUnauthorized)
     return () => {
+      cancelled = true
       window.removeEventListener('auth:unauthorized', handleUnauthorized)
     }
   }, [])
@@ -74,6 +131,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       role: data.user.role,
     }
 
+    setQuerySession(mappedUser.id)
+    notifySessionChanged()
     setUser(mappedUser)
     setStores(data.stores || [])
 
@@ -82,11 +141,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }
 
   const logout = () => {
-    clearTokens()
-    setUser(null)
-    setStores([])
-    localStorage.removeItem(USER_STORAGE_KEY)
-    localStorage.removeItem(STORES_STORAGE_KEY)
+    // Best-effort server-side revocation; never block the local sign-out.
+    void apiClient.post('/auth/logout').catch(() => undefined)
+    clearSession()
   }
 
   const role = user?.role || null

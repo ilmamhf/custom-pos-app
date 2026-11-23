@@ -68,7 +68,7 @@ export function useReportSummary(storeId?: string, from?: string, to?: string) {
 // Products Catalog Queries & Mutations
 export function useProducts(storeId?: string, search?: string, page = 1, limit = 20) {
   return useQuery({
-    queryKey: queryKeys.products.list(storeId, search, page),
+    queryKey: queryKeys.products.list(storeId, search, page, limit),
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }
       if (storeId) params.storeId = storeId
@@ -142,7 +142,7 @@ export function useInventory(
   limit = 20
 ) {
   return useQuery({
-    queryKey: queryKeys.inventory.list(storeId, lowStockOnly, negativeOnly, page),
+    queryKey: queryKeys.inventory.list(storeId, lowStockOnly, negativeOnly, page, limit),
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }
       if (storeId) params.storeId = storeId
@@ -194,7 +194,7 @@ export function useStockLedger(
   limit = 20
 ) {
   return useQuery({
-    queryKey: queryKeys.inventory.ledger(storeId, productId, reason, page),
+    queryKey: queryKeys.inventory.ledger(storeId, productId, reason, page, limit),
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }
       if (storeId) params.storeId = storeId
@@ -219,7 +219,7 @@ export function useSales(
   limit = 20
 ) {
   return useQuery({
-    queryKey: queryKeys.sales.list(storeId, from, to, status, page),
+    queryKey: queryKeys.sales.list(storeId, from, to, status, page, limit),
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }
       if (storeId) params.storeId = storeId

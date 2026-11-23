@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -14,14 +14,26 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Product, CreateProductRequest, UpdateProductRequest } from '@/api/types'
 import { useCreateProduct, useUpdateProduct } from '@/api/queries'
-import { parseIdr, formatIdr } from '@/lib/formatters'
+import { parseIntegerIdr, formatIdr } from '@/lib/formatters'
+import { AlertCircle } from 'lucide-react'
+
+const wholeRupiah = z
+  .string()
+  .trim()
+  .regex(/^\d+$/, 'Enter whole rupiah digits only (no decimals or exponents)')
 
 const productSchema = z.object({
-  sku: z.string().min(1, 'SKU is required').max(50),
-  barcode: z.string().max(64).optional(),
-  name: z.string().min(1, 'Product name is required').max(150),
-  basePriceStr: z.string().min(1, 'Base price is required'),
-  costPriceStr: z.string().optional(),
+  sku: z.string().trim().min(1, 'SKU is required').max(50),
+  barcode: z.string().trim().max(64).optional(),
+  name: z.string().trim().min(1, 'Product name is required').max(150),
+  basePriceStr: wholeRupiah,
+  costPriceStr: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || /^\d+$/.test(v), {
+      message: 'Enter whole rupiah digits only (no decimals or exponents)',
+    }),
   isActive: z.boolean().default(true),
 })
 
@@ -41,6 +53,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const isEditing = !!product
   const createMutation = useCreateProduct()
   const updateMutation = useUpdateProduct()
+  const [serverError, setServerError] = useState<string | null>(null)
 
   const {
     register,
@@ -62,6 +75,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   })
 
   useEffect(() => {
+    setServerError(null)
     if (product) {
       reset({
         sku: product.sku,
@@ -84,32 +98,49 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   }, [product, reset])
 
   const onSubmit = async (values: ProductFormValues) => {
-    const basePrice = parseIdr(values.basePriceStr)
-    const costPrice = values.costPriceStr ? parseIdr(values.costPriceStr) : 0
+    setServerError(null)
 
-    if (isEditing && product) {
-      const payload: UpdateProductRequest & { id: string } = {
-        id: product.id,
-        sku: values.sku.trim(),
-        barcode: values.barcode?.trim() || null,
-        name: values.name.trim(),
-        basePrice,
-        costPrice,
-        isActive: values.isActive,
-      }
-      await updateMutation.mutateAsync(payload)
-    } else {
-      const payload: CreateProductRequest = {
-        sku: values.sku.trim(),
-        barcode: values.barcode?.trim() || undefined,
-        name: values.name.trim(),
-        basePrice,
-        costPrice,
-      }
-      await createMutation.mutateAsync(payload)
+    const basePrice = parseIntegerIdr(values.basePriceStr)
+    const costPrice = values.costPriceStr
+      ? parseIntegerIdr(values.costPriceStr)
+      : 0
+
+    if (basePrice === null || costPrice === null) {
+      setServerError('Prices must be whole rupiah amounts.')
+      return
     }
 
-    onOpenChange(false)
+    try {
+      if (isEditing && product) {
+        const payload: UpdateProductRequest & { id: string } = {
+          id: product.id,
+          sku: values.sku.trim(),
+          barcode: values.barcode?.trim() || null,
+          name: values.name.trim(),
+          basePrice,
+          costPrice,
+          isActive: values.isActive,
+        }
+        await updateMutation.mutateAsync(payload)
+      } else {
+        const payload: CreateProductRequest = {
+          sku: values.sku.trim(),
+          barcode: values.barcode?.trim() || undefined,
+          name: values.name.trim(),
+          basePrice,
+          costPrice,
+        }
+        await createMutation.mutateAsync(payload)
+      }
+      onOpenChange(false)
+    } catch (err: any) {
+      const msg = err?.response?.data?.message
+      setServerError(
+        Array.isArray(msg)
+          ? msg.join(', ')
+          : msg || 'Could not save the product. Please correct the values and retry.'
+      )
+    }
   }
 
   const basePriceValue = watch('basePriceStr')
@@ -128,6 +159,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               : 'Register a new master catalog item. Stock is initialized to 0 across all stores.'}
           </DialogDescription>
         </DialogHeader>
+
+        {serverError && (
+          <div className="rounded-md bg-red-50 p-3 text-xs text-red-700 border border-red-200 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-600" />
+            <span>{serverError}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -171,13 +209,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               </label>
               <Input
                 type="number"
+                min={0}
+                step={1}
                 placeholder="18000"
                 error={errors.basePriceStr?.message}
                 {...register('basePriceStr')}
               />
-              {basePriceValue && !isNaN(parseInt(basePriceValue)) && (
+              {basePriceValue && parseIntegerIdr(basePriceValue) !== null && (
                 <span className="text-[11px] text-slate-500 mt-0.5 block">
-                  Preview: {formatIdr(parseIdr(basePriceValue))}
+                  Preview: {formatIdr(parseIntegerIdr(basePriceValue)!)}
                 </span>
               )}
             </div>
@@ -188,13 +228,15 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               </label>
               <Input
                 type="number"
+                min={0}
+                step={1}
                 placeholder="9000"
                 error={errors.costPriceStr?.message}
                 {...register('costPriceStr')}
               />
-              {costPriceValue && !isNaN(parseInt(costPriceValue)) && (
+              {costPriceValue && parseIntegerIdr(costPriceValue) !== null && (
                 <span className="text-[11px] text-slate-500 mt-0.5 block">
-                  Preview: {formatIdr(parseIdr(costPriceValue))}
+                  Preview: {formatIdr(parseIntegerIdr(costPriceValue)!)}
                 </span>
               )}
             </div>

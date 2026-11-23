@@ -39,6 +39,23 @@ export function parseIdr(value: string | number): number {
 }
 
 /**
+ * Strictly parse a whole-rupiah input. Unlike {@link parseIdr}, this never
+ * repairs malformed input: decimal points or exponent notation return null so
+ * `18.5` cannot silently become `185`.
+ */
+export function parseIntegerIdr(value: string | number): number | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null
+  }
+
+  const trimmed = value.trim()
+  if (!/^\d+$/.test(trimmed)) return null
+
+  const parsed = Number(trimmed)
+  return Number.isSafeInteger(parsed) ? parsed : null
+}
+
+/**
  * Format basis points into percentage display string.
  * e.g. 1100 -> "11%", 1150 -> "11.5%", 0 -> "0%".
  */

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useStore } from '@/context/StoreContext'
 import { useInventory } from '@/api/queries'
 import { StoreInventoryItem } from '@/api/types'
@@ -32,7 +32,7 @@ export const InventoryPage: React.FC = () => {
   const [transferModalOpen, setTransferModalOpen] = useState(false)
   const [transferItem, setTransferItem] = useState<StoreInventoryItem | null>(null)
 
-  const { data: inventoryData, isLoading } = useInventory(
+  const { data: inventoryData, isLoading, error } = useInventory(
     selectedStoreId,
     lowStockFilter,
     negativeFilter,
@@ -40,9 +40,14 @@ export const InventoryPage: React.FC = () => {
     15
   )
 
+  useEffect(() => {
+    setPage(1)
+  }, [selectedStoreId])
+
   // Find if there are any negative stock items in current inventory view
   const negativeItems =
     inventoryData?.items.filter((item) => item.stockOnHand < 0) || []
+  const negativeCount = inventoryData?.negativeCount ?? negativeItems.length
 
   const totalPages = inventoryData ? Math.ceil(inventoryData.total / 15) : 1
 
@@ -113,7 +118,7 @@ export const InventoryPage: React.FC = () => {
                 <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
                 <div>
                   <h3 className="text-sm font-bold text-red-800">
-                    Negative Stock Discrepancy Detected ({negativeItems.length} SKUs)
+                    Negative Stock Discrepancy Detected ({negativeCount} SKUs)
                   </h3>
                   <p className="text-xs text-red-700 mt-0.5">
                     Offline POS sales completed while connection was offline caused stock to dip below zero. Immediate supplier restock or physical count adjustment required.
@@ -124,7 +129,14 @@ export const InventoryPage: React.FC = () => {
                 variant="destructive"
                 size="sm"
                 className="shrink-0 text-xs gap-1"
-                onClick={() => handleOpenAdjust(negativeItems[0])}
+                onClick={() => {
+                  if (negativeItems[0]) {
+                    handleOpenAdjust(negativeItems[0])
+                  } else {
+                    setNegativeFilter(true)
+                    setLowStockFilter(false)
+                  }
+                }}
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 1-Click Reconcile Discrepancy
@@ -136,7 +148,9 @@ export const InventoryPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                setNegativeFilter(!negativeFilter)
+                const next = !negativeFilter
+                setNegativeFilter(next)
+                if (next) setLowStockFilter(false)
                 setPage(1)
               }}
               data-testid="negative-stock-filter-pill"
@@ -147,12 +161,14 @@ export const InventoryPage: React.FC = () => {
               }`}
             >
               <AlertTriangle className="h-3.5 w-3.5" />
-              Negative Stock Alerts {negativeItems.length > 0 && `(${negativeItems.length})`}
+              Negative Stock Alerts {negativeCount > 0 && `(${negativeCount})`}
             </button>
 
             <button
               onClick={() => {
-                setLowStockFilter(!lowStockFilter)
+                const next = !lowStockFilter
+                setLowStockFilter(next)
+                if (next) setNegativeFilter(false)
                 setPage(1)
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
@@ -185,6 +201,12 @@ export const InventoryPage: React.FC = () => {
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-sm text-slate-400">
                         Loading inventory records...
+                      </td>
+                    </tr>
+                  ) : error ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-sm text-red-600">
+                        Failed to load inventory. Check your connection or store access.
                       </td>
                     </tr>
                   ) : !inventoryData?.items || inventoryData.items.length === 0 ? (

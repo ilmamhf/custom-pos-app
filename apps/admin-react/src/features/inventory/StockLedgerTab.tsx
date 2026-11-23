@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useStockLedger } from '@/api/queries'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { formatDateTime } from '@/lib/formatters'
@@ -13,13 +13,17 @@ export const StockLedgerTab: React.FC<StockLedgerTabProps> = ({ storeId }) => {
   const [page, setPage] = useState(1)
   const [reasonFilter, setReasonFilter] = useState<string>('')
 
-  const { data: ledgerData, isLoading } = useStockLedger(
+  const { data: ledgerData, isLoading, error } = useStockLedger(
     storeId,
     undefined,
     reasonFilter || undefined,
     page,
     20
   )
+
+  useEffect(() => {
+    setPage(1)
+  }, [storeId])
 
   const totalPages = ledgerData ? Math.ceil(ledgerData.total / 20) : 1
 
@@ -69,6 +73,12 @@ export const StockLedgerTab: React.FC<StockLedgerTabProps> = ({ storeId }) => {
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-400">
                     Loading ledger entries...
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-red-600">
+                    Failed to load the stock ledger. Check your connection or store access.
                   </td>
                 </tr>
               ) : !ledgerData?.items || ledgerData.items.length === 0 ? (

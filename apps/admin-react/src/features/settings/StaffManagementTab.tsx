@@ -6,7 +6,7 @@ import { StaffModal } from './StaffModal'
 import { UserPlus } from 'lucide-react'
 
 export const StaffManagementTab: React.FC = () => {
-  const { data: users, isLoading } = useUsers()
+  const { data: users, isLoading, error } = useUsers()
   const { data: stores } = useStores()
   const [modalOpen, setModalOpen] = useState(false)
   const updateUserMutation = useUpdateUser()
@@ -53,6 +53,12 @@ export const StaffManagementTab: React.FC = () => {
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-400">
                     Loading staff directory...
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-red-600">
+                    Failed to load staff. Check your connection or permissions.
                   </td>
                 </tr>
               ) : !users || users.length === 0 ? (

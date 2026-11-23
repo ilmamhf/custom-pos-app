@@ -124,6 +124,8 @@ export interface InventoryResponse {
   total: number
   page: number
   limit: number
+  /** Server-side count of negative-stock rows in the current scope/filter. */
+  negativeCount?: number
 }
 
 export interface StockAdjustmentRequest {

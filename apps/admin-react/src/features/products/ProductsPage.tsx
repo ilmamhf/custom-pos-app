@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useStore } from '@/context/StoreContext'
 import { useAuth } from '@/context/AuthContext'
 import { useProducts } from '@/api/queries'
@@ -36,7 +36,14 @@ export const ProductsPage: React.FC = () => {
   const {
     data: productsData,
     isLoading,
+    error,
   } = useProducts(selectedStoreId, search || undefined, page, 15)
+
+  // A changed store scope always starts at page 1 so a store with fewer pages
+  // cannot leave a stale, non-existent page selected.
+  useEffect(() => {
+    setPage(1)
+  }, [selectedStoreId])
 
   const totalPages = productsData ? Math.ceil(productsData.total / 15) : 1
 
@@ -134,6 +141,15 @@ export const ProductsPage: React.FC = () => {
                     className="py-8 text-center text-sm text-slate-400"
                   >
                     Loading catalog items...
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td
+                    colSpan={selectedStoreId ? 9 : 7}
+                    className="py-8 text-center text-sm text-red-600"
+                  >
+                    Failed to load products. Check your connection or store access.
                   </td>
                 </tr>
               ) : !productsData?.items || productsData.items.length === 0 ? (

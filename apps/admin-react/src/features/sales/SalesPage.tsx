@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useStore } from '@/context/StoreContext'
 import { useSales } from '@/api/queries'
 import { Sale } from '@/api/types'
@@ -27,6 +27,7 @@ export const SalesPage: React.FC = () => {
   const {
     data: salesData,
     isLoading,
+    error,
     refetch,
   } = useSales(
     selectedStoreId,
@@ -36,6 +37,10 @@ export const SalesPage: React.FC = () => {
     page,
     15
   )
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedStoreId])
 
   const totalPages = salesData ? Math.ceil(salesData.total / 15) : 1
 
@@ -100,6 +105,12 @@ export const SalesPage: React.FC = () => {
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-sm text-slate-400">
                     Loading sales records...
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-sm text-red-600">
+                    Failed to load sales. Check your connection or store access.
                   </td>
                 </tr>
               ) : !salesData?.items || salesData.items.length === 0 ? (

@@ -126,6 +126,21 @@ patrol test --device chrome `
   node scripts/export-patrol-videos.mjs          # WebM -> patrol_videos/
   node scripts/export-patrol-videos.mjs --mp4    # optional, needs a full ffmpeg
   ```
+  `patrol_videos/` is the stable-named evidence set. The exporter moves raw
+  `test-results/<test>/video.webm` files by default, so the same recording is
+  not left in two places; use `--keep-raw` to copy instead. The HTML report
+  keeps its own embedded copy under `playwright-report/data/`.
+
+### Why Patrol specs stay here
+
+`patrol test` builds the app and the tests together, generates
+`apps/pos-flutter/test_bundle.dart`, and the tests import
+`package:pos_flutter/main.dart`. The Patrol keys (`patrol`,
+`patrol_finders`, `patrol.test_directory`) also live in this package's
+`pubspec.yaml`. That makes `patrol_test/` the Flutter equivalent of the root
+`e2e/` folder; moving the specs outside the package would break discovery and
+the app build. The root `e2e/` project is the black-box Node/Playwright runner
+for React Admin and cross-app flows.
 
 Legacy fallback (requires chromedriver on port 4444):
 

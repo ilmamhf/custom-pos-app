@@ -3,7 +3,9 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  renameSync,
   statSync,
+  unlinkSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -13,6 +15,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const outDir = path.join(root, 'patrol_videos');
 const wantMp4 = process.argv.includes('--mp4');
+const keepRaw = process.argv.includes('--keep-raw');
 
 function walk(dir) {
   if (!existsSync(dir)) return [];
@@ -109,7 +112,17 @@ videos.forEach((video, index) => {
   used.add(slug);
 
   const webmOut = path.join(outDir, `${slug}.webm`);
-  copyFileSync(video, webmOut);
+  if (keepRaw) {
+    copyFileSync(video, webmOut);
+  } else {
+    // Move instead of copy so raw and curated artifacts do not duplicate.
+    try {
+      renameSync(video, webmOut);
+    } catch {
+      copyFileSync(video, webmOut);
+      unlinkSync(video);
+    }
+  }
   console.log(`[webm] ${webmOut}`);
 
   if (canMp4) {
@@ -122,7 +135,7 @@ videos.forEach((video, index) => {
         '-loglevel',
         'error',
         '-i',
-        video,
+        webmOut,
         '-c:v',
         'libx264',
         '-preset',
@@ -144,5 +157,6 @@ videos.forEach((video, index) => {
 
 console.log(
   `Exported ${videos.length} Patrol recording(s) to ${outDir}` +
-    (canMp4 ? ` (${mp4Count} MP4).` : ' as WebM.')
+    (keepRaw ? ' (raw videos kept).' : ' (raw videos moved).') +
+    (canMp4 ? ` ${mp4Count} MP4.` : '')
 );

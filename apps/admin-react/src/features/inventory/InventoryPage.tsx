@@ -238,7 +238,10 @@ export const InventoryPage: React.FC = () => {
                           <td className="py-3 px-4 font-medium text-slate-800">
                             {inv.productName}
                           </td>
-                          <td className="py-3 px-4 text-center font-mono">
+                          <td
+                            className="py-3 px-4 text-center font-mono"
+                            data-testid={`stock-${inv.storeId}-${inv.productId}`}
+                          >
                             <span
                               className={`px-2.5 py-1 rounded text-xs font-bold ${
                                 isNegative

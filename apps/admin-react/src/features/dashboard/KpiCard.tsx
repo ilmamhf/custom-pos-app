@@ -31,7 +31,10 @@ export const KpiCard: React.FC<KpiCardProps> = ({
   }[variant]
 
   return (
-    <Card className="p-5 flex flex-col justify-between">
+    <Card
+      data-testid={`kpi-${title.toLowerCase().replace(/\s+/g, '-')}`}
+      className="p-5 flex flex-col justify-between"
+    >
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           {title}

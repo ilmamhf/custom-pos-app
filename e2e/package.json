@@ -1,0 +1,15 @@
+{
+  "name": "pos-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:setup": "node scripts/setup-db.mjs",
+    "test": "node scripts/setup-db.mjs && playwright test",
+    "test:admin": "node scripts/setup-db.mjs && playwright test --project=admin",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "pg": "^8.13.1"
+  }
+}

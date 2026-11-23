@@ -146,7 +146,10 @@ export const SalesPage: React.FC = () => {
                         {sale.paymentMethod}
                       </span>
                     </td>
-                    <td className="py-3 px-4">
+                    <td
+                      className="py-3 px-4"
+                      data-testid={`sale-status-${sale.id}`}
+                    >
                       <StatusBadge status={sale.status} variant={sale.status} />
                     </td>
                     <td className="py-3 px-4 text-right font-medium text-slate-900">

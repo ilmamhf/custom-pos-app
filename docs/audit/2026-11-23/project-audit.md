@@ -31,26 +31,29 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | --- | --- | --- |
 | Local demo / developer workflow | ✅ Ready | Setup documented; all tests pass |
 | Single-store controlled pilot | ✅ Ready | P0 defects closed; live-test issues fixed |
-| Multi-store production rollout | ⚠️ Conditional | Residual: financial reconciliation (H-13, R-01), negative-stock policy (R-03), delta pull tombstones (R-04), rate limiting (R-06), token storage (M-02), dependency advisories (D-01/D-02) |
+| Multi-store production rollout | ⚠️ Conditional | P1 financial/sync/auth work complete; residual: token storage (M-02), dependency advisories (D-01/D-02), negative-stock Admin UI surface |
 | Internet-facing deployment | ❌ Not ready | Above + printer hardware (M-08/R-05), observability stack (M-07) |
 
 ---
 
-## 2. Verification baseline (2026-11-23)
+## 2. Verification baseline (2026-11-24, after P1)
 
 | Check | Result |
 | --- | --- |
-| API unit tests | 26 passed |
-| API e2e tests | 19 passed |
+| API unit tests | 36 passed |
+| API e2e tests | 22 passed (requires PostgreSQL on `localhost:15432`) |
 | API TypeScript/build | Passed |
 | React tests | 27 passed |
 | React typecheck | Passed |
 | React production build | Passed (chunk size warning) |
-| Flutter tests | 157 passed |
+| Flutter tests | 158 passed |
 | Flutter analyze | No errors; 28 info-level deprecation notices |
 | Flutter web build | Passed |
+| Fresh DB bootstrap | `prisma migrate deploy` + `migrate diff --exit-code` → no difference |
 | `npm audit --omit=dev` (API) | 6 advisories (1 critical, 5 high) — **unchanged** |
 | `npm audit --omit=dev` (React) | 3 advisories (1 high, 2 moderate) — **unchanged** |
+
+Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 
 ---
 
@@ -70,6 +73,18 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | 8 | Flutter store-scoped local catalog + pull reconciliation | H-01, H-06(c) | `dc47f0e` |
 | 9 | Flutter sync/refund/PIN/retry | H-04(c), H-09(c), H-11, H-12 | `dc47f0e` |
 | 10 | Versioned migrations + CI | M-04, M-05, M-06 | `42e0a5f` |
+
+### Tasks completed (P1 — 2026-11-24)
+
+| # | Task | Findings addressed | Commit |
+|---|------|-------------------|--------|
+| P1.1 | Tender components per sale + BigInt drawer reconciliation | H-13 | `7c24049` |
+| P1.2 | Payment provider interface, transactions, webhook, void/refund | R-01 | `3775d27` |
+| P1.3 | Negative-stock policy engine + escalation events | R-03 | `7935fa5` |
+| P1.4 | Delta pull tombstones + durable cursor + snapshot fallback | R-04 | `bd23bd3` |
+| P1.5 | IDR ceiling enforcement across DTOs | R-02 | `b368a8d` |
+| P1.6 | Auth throttling + lockout telemetry + alert webhook | R-06 | `19a222d` |
+| P1.7 | Backfilled Prisma migrations for P1.1–P1.4 schema | R-01/R-03/R-04 | `cbeb7ae` |
 
 ### Tasks deferred
 
@@ -95,12 +110,12 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 
 | ID | Finding | Status | Notes |
 |---|---------|--------|-------|
-| **H-13** | Shift cash reconciliation uses floats, incomplete payment model | **Open** | `BigInt` throughout; persist tender components; split-payment support |
-| **R-01** | Payment methods are labels, no provider integration | **Open** | Define tender allocation, gateway refs, capture/void/settle |
-| **R-03** | Negative stock policy unspecified | **Open** | Approval/transfer/write-off/alert thresholds needed |
-| **R-04** | Delta pull: no tombstones, cursor not durable | **Open** | Deactivation propagation; server-side cursor; snapshot fallback |
-| **R-02** | JS safe-integer boundary crossed | **Partial** | Enforce IDR ceiling or decimal strings end-to-end |
-| **R-06** | No rate limiting on auth/PIN endpoints | **Open** | `@nestjs/throttler` + lockout telemetry + alerts |
+| **H-13** | Shift cash reconciliation uses floats, incomplete payment model | **Fixed** | `SaleTender` table; BigInt throughout; split payments; tender refs |
+| **R-01** | Payment methods are labels, no provider integration | **Fixed** | `IPaymentProvider` + generic HTTP provider, authorize/capture/void/refund, HMAC webhook, idempotency |
+| **R-03** | Negative stock policy unspecified | **Fixed (engine/API)** | Policy engine with ALERT_ONLY / AUTO_TRANSFER / MANAGER_APPROVAL / WRITE_OFF + events; Admin UI still open |
+| **R-04** | Delta pull: no tombstones, cursor not durable | **Fixed** | `ProductTombstone`, `SyncCursor`, `full=true` snapshot fallback, client delete handling |
+| **R-02** | JS safe-integer boundary crossed | **Fixed** | IDR ceiling 999,999,999 enforced on every monetary DTO |
+| **R-06** | No rate limiting on auth/PIN endpoints | **Fixed** | `@nestjs/throttler` global + strict auth routes; account lockout, masked telemetry, alert webhook |
 | **M-02** | React tokens in `localStorage` | **Partial** | Move refresh to HttpOnly cookie; add CSRF |
 | **M-04** | Flutter SQLite migration testing | **Partial** | Upgrade tests from v0→v1 on real devices needed |
 | **M-07** | Production deployment/observability incomplete | **Open** | Containers, probes, metrics, traces, alerts, backup drills |
@@ -168,14 +183,14 @@ React Admin
 - [ ] Cross-store e2e matrix (assigned/unassigned/omitted/conflict/header-route/transfer) — *was recommended in Task 1 residual*
 - [ ] Sync mixed success/failure response handling
 - [ ] Concurrent transfers against limited source stock (H-10)
-- [ ] Rate limiting / brute-force tests (R-06)
+- [x] Rate limiting / brute-force tests (R-06) — throttler 429 + lockout escalation
 - [ ] Startup failure on missing/weak JWT secrets (H-14)
 
 ### Flutter
 - [ ] Two stores with different prices/stock + switch-back behavior
 - [ ] Failed server response IDs + retry/backoff; failed rows → retryable
 - [ ] Pull with pending local sale decrement + failed outbox row
-- [ ] Durable per-store pull cursor + deactivation propagation
+- [x] Durable per-store pull cursor + deactivation propagation — unit-tested; device test still open
 - [ ] Offline refund command shape + local rollback + server ack reconciliation
 - [ ] Offline PIN cache isolation by store/user, expiry, logout, PIN revocation
 - [ ] Retry interceptor for non-idempotent requests + ambiguous responses
@@ -196,7 +211,7 @@ React Admin
 - [ ] Generated/shared API types so server/client shape change fails CI
 
 ### Operational
-- [ ] Fresh database bootstrap from committed Prisma migrations
+- [x] Fresh database bootstrap from committed Prisma migrations — verified 2026-11-24
 - [ ] CI running every verified command (push to trigger)
 - [ ] Dependency audit policy with documented exceptions
 - [ ] Backup restore + multi-client sync under intermittent connectivity
@@ -206,7 +221,7 @@ React Admin
 
 ## 8. Prioritized roadmap to "Multi-store production ✅"
 
-### P1: Financial & sync correctness (2–3 weeks)
+### P1: Financial & sync correctness (2–3 weeks) — ✅ complete 2026-11-24
 
 | # | Work | Unlocks |
 |---|------|---------|

@@ -65,6 +65,7 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | Restore drill | Passed: 18 tables, 2 stores, 25 products, 23 sales, 21 tenders; the recovery target comes from the manifest; the measured RTO was 4 seconds |
 | Backup metrics | `pos_backup_last_success_timestamp_seconds` reaches Prometheus through the node_exporter textfile collector; `PosBackupStale` and `PosBackupMetricMissing` both resolve to inactive |
 | Admin UI (live) | Sales date-range filter and staff edit workflow clicked through in the running Admin: the picked day sends the local-day bounds, a reversed range sends nothing, Clear resets the fields, the edit dialog opens filled with the staff member, an empty name is refused, and the save sends a PATCH that renames the row. The browser console is clean throughout |
+| Flutter migration (Patrol) | v0→v1 migration exercised on real device: legacy schema created, migration executed, data integrity and server sync verified |
 
 Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 
@@ -116,6 +117,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | P3.2 | Structured JSON logs, Prometheus metrics, W3C tracing, alert rules + runbook | M-07 | `a5aef5b` |
 | P3.3 | Encrypted PostgreSQL backups, WAL archive, restore drill with RTO measurement | M-07/R-07 | `126a93d` |
 | P3.4 | Sales date-range filter + staff edit workflow in React | M-16 | `3caa403` |
+| P3.5 | Flutter v0→v1 migration upgrade tests | M-04 | `f6d3371` |
 
 ### Tasks deferred
 
@@ -148,7 +150,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | **R-02** | JS safe-integer boundary crossed | **Fixed** | IDR ceiling 999,999,999 enforced on every monetary DTO |
 | **R-06** | No rate limiting on auth/PIN endpoints | **Fixed** | `@nestjs/throttler` global + strict auth routes; account lockout, masked telemetry, alert webhook |
 | **M-02** | React tokens in `localStorage` | **Fixed** | Access token in memory; refresh token in HttpOnly `SameSite=Strict` cookie; CSRF double-submit; native clients keep body tokens |
-| **M-04** | Flutter SQLite migration testing | **Partial** | Upgrade tests from v0→v1 on real devices needed |
+| **M-04** | Flutter SQLite migration testing | **Fixed** | Unit + Patrol tests for v0→v1 migration: legacy schema created, migration executed, data integrity and server sync verified on device |
 | **M-07** | Production deployment/observability incomplete | **Fixed** | Deployment (containers, Compose, K8s, probes, TLS, secrets); observability (JSON logs, Prometheus metrics, W3C tracing, 16 alert rules); encrypted backups with a WAL archive, a restore drill, and the RTO measured |
 | **M-16** | Sales-date filter & staff edit workflows | **Fixed** | React date-range filter (local-day bounds, reversed range refused); staff edit dialog (name, role, branch access, active flag, credential reset); API guards for duplicate email and the last active owner |
 | **D-01** | API dependency advisories (6) | **Fixed** | Prisma 7.10.1 (driver adapter + `prisma.config.ts`), bcrypt 6 (drops node-pre-gyp/tar), `effect` override; `npm audit --omit=dev` → 0 advisories |

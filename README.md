@@ -85,6 +85,16 @@ On macOS or Linux, use `test -f .env || cp .env.example .env`. Keeping an existi
 
 `prisma:migrate:deploy` applies the committed migration history in `prisma/migrations`. `prisma:seed` adds the stores, accounts, products, and starting inventory.
 
+Prisma 7 keeps its configuration in `apps/api-nestjs/prisma.config.ts` (schema path, migration path, seed command, and the `DATABASE_URL` used by the CLI). The API process connects through the `@prisma/adapter-pg` driver adapter, so the same `DATABASE_URL` is used by both the CLI and the running service.
+
+To recreate a disposable local database from the migration history, use:
+
+```powershell
+npm run prisma:reset
+```
+
+It drops and recreates the database, applies every migration, and re-seeds it. (`prisma migrate reset` is not used: Prisma 7 refuses to run it unattended.)
+
 Start the API:
 
 ```powershell

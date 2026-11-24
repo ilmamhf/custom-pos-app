@@ -1,7 +1,8 @@
-import { PrismaClient, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { createPrismaClient } from '../src/prisma/prisma-client.factory';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 async function main() {
   console.log('Seeding initial data...');

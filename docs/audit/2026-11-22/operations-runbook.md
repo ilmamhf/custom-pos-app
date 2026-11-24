@@ -112,6 +112,16 @@ move the counter/lockout storage to Redis so all replicas share state (M-07).
 - Run `npm run prisma:seed` only for a brand-new environment; it resets seeded
   passwords and stock.
 - Keep a pre-deploy backup. Migrations in this repository are forward-only.
+- Prisma 7 no longer generates the client automatically. The build pipeline must
+  run `npm run prisma:generate` (or `npx prisma generate`) after `npm ci` and
+  before compiling the API.
+- The CLI reads `DATABASE_URL` from `apps/api-nestjs/prisma.config.ts`; the API
+  process connects with the `@prisma/adapter-pg` driver adapter. Both must point
+  at the same database.
+- Pool settings moved from Prisma to the `pg` driver. The defaults are
+  `DATABASE_POOL_MAX=10`, `DATABASE_CONNECTION_TIMEOUT_MS=5000`, and
+  `DATABASE_IDLE_TIMEOUT_MS=30000`; tune them if the database limits
+  connections.
 
 ## 4. Health, readiness, and probes
 

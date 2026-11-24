@@ -50,8 +50,8 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | Flutter analyze | No errors; 28 info-level deprecation notices |
 | Flutter web build | Passed |
 | Fresh DB bootstrap | `prisma migrate deploy` + `migrate diff --exit-code` → no difference |
-| `npm audit --omit=dev` (API) | 6 advisories (1 critical, 5 high) — **unchanged** |
-| `npm audit --omit=dev` (React) | 3 advisories (1 high, 2 moderate) — **unchanged** |
+| `npm audit --omit=dev` (API) | 0 advisories (was 6: 1 critical, 5 high) |
+| `npm audit --omit=dev` (React) | 3 advisories (1 high, 2 moderate) — pending D-02 |
 
 Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 
@@ -91,6 +91,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | # | Task | Findings addressed | Commit |
 |---|------|-------------------|--------|
 | P2.1 | HttpOnly refresh cookie + CSRF double-submit (native clients unchanged) | M-02 | `8fe6383` |
+| P2.2 | Prisma 7 + bcrypt 6 upgrade; API advisories cleared | D-01 | _pending_ |
 
 ### Tasks deferred
 
@@ -126,7 +127,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | **M-04** | Flutter SQLite migration testing | **Partial** | Upgrade tests from v0→v1 on real devices needed |
 | **M-07** | Production deployment/observability incomplete | **Open** | Containers, probes, metrics, traces, alerts, backup drills |
 | **M-16** | Sales-date filter & staff edit workflows | **Open** | React date picker + server `from`/`to`; staff edit (not just toggle) |
-| **D-01** | API dependency advisories (6) | **Deferred** | Prisma 7 + Zod 4 + React Router 7 upgrade sequence documented |
+| **D-01** | API dependency advisories (6) | **Fixed** | Prisma 7.10.1 (driver adapter + `prisma.config.ts`), bcrypt 6 (drops node-pre-gyp/tar), `effect` override; `npm audit --omit=dev` → 0 advisories |
 | **D-02** | React dependency advisories (3) | **Deferred** | Same as above |
 
 ### Low — usability

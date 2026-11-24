@@ -83,6 +83,18 @@ Every task below was committed separately on `main` with all suites green.
 - React Admin: access token held in memory only; refresh is cookie-based with `withCredentials`; the `X-CSRF-Token` header is read from the CSRF cookie on every request; login sends `X-Auth-Refresh-Mode: cookie`; bootstrap calls `/auth/refresh` then `/auth/me`; `isAuthenticated` derives from the loaded user. Test mode still seeds `pos_access_token` in localStorage so the existing suite runs without a live API.
 - Flutter POS unchanged: it sends `refreshToken` in the body, receives a rotated token in the response, and keeps the token in secure storage.
 
+### P2.2 — D-01: Prisma 7 + bcrypt 6 (`_pending_`)
+
+- `prisma` / `@prisma/client` 6.19.3 → 7.10.1. Prisma 7 is Rust-free and connects through a driver adapter, so `@prisma/adapter-pg` + `pg` were added.
+- `prisma.config.ts` (new, project root of the API app) holds the schema path, migration path, seed command, and the `DATABASE_URL`/`SHADOW_DATABASE_URL` used by the CLI; `url` was removed from `schema.prisma` because Prisma 7 rejects it there.
+- `src/prisma/prisma-client.factory.ts` builds the adapter for every entry point (Nest service, seed script); `PrismaService` and `prisma/seed.ts` use it.
+- Pool behaviour is restored explicitly because `pg` has no connect timeout by default: `DATABASE_POOL_MAX` (10), `DATABASE_CONNECTION_TIMEOUT_MS` (5000), `DATABASE_IDLE_TIMEOUT_MS` (30000).
+- `bcrypt` 5.1.1 → 6.0.0. bcrypt 6 replaces `@mapbox/node-pre-gyp` with `node-gyp-build`, which removes the vulnerable `tar@6` chain (the critical advisory). Hash format stays `$2b$`, so existing password/PIN hashes still verify.
+- `overrides: { effect: ^3.22.5 }` pins the Prisma CLI's `effect` dependency past GHSA-7589-6fvf-x4pw.
+- `prisma migrate reset` is no longer used anywhere: Prisma 7 refuses to run it unattended (AI/CI destructive-action guard). `npm run prisma:reset` drops/recreates the database, applies the migrations, and seeds; the e2e harness does the same in `e2e/scripts/setup-db.mjs`.
+- `prisma generate` is now an explicit build step (Prisma 7 no longer generates on install/migrate).
+- Verification: `npm audit --omit=dev` → **0 advisories**; fresh database + `prisma migrate deploy` + `migrate diff --from-config-datasource --to-schema … --exit-code` → no difference; 36 API unit and 24 API e2e tests pass on the new client.
+
 ## Verification
 
 | Check | Result |
@@ -105,5 +117,6 @@ Additional M-02 e2e coverage: cookie mode sets the right flags and omits the bod
 2. **Auto-transfer does not move stock.** It records candidates for an operator/Admin action.
 3. **Negative-stock Admin UI** is not built yet; the API and events exist.
 4. **Generic provider only.** Real gateway quirks (signature formats, status codes) may need adapters behind `IPaymentProvider`.
-5. **Advisories unchanged.** `npm audit --omit=dev` still reports 6 (API) and 3 (React); addressed by the deferred D-01/D-02 upgrade track.
+5. **Advisories.** The API is clean (`npm audit --omit=dev` → 0); React still reports 3 advisories until the Zod 4 / React Router 7 upgrade (D-02) lands.
 6. **Refresh rotation is stateless (M-02).** A rotated cookie produces a new `jti`, but the previously issued refresh token stays valid until expiry (7 days) or `tokenVersion` bump. Enforce one-time use with a jti denylist (Redis) before treating rotation as theft detection.
+7. **Prisma 7 keeps the classic generator (D-01).** The deprecated `prisma-client-js` provider is still used so the API stays CommonJS and no import paths change. Move to the `prisma-client` generator (custom `output`, generated imports) when the API is migrated to ESM.

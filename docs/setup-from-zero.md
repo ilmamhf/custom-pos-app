@@ -13,8 +13,7 @@ docker compose up --wait -d postgres
 Reset data only (keeps the container/volume):
 ```powershell
 cd apps\api-nestjs
-npx prisma migrate reset --force
-npm run prisma:seed
+npm run prisma:reset
 ```
 
 ## 2. API

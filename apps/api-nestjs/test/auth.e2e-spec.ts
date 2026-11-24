@@ -124,4 +124,61 @@ describe('Auth Flow (E2E)', () => {
 
     expect(res.body.error).toBe('UNAUTHORIZED');
   });
+
+  it('GET /api/v1/auth/security/telemetry - hides lockout telemetry from non-owners', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/auth/security/telemetry')
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .expect(403);
+
+    expect(res.body.error).toBe('FORBIDDEN');
+  });
+
+  it('GET /api/v1/auth/security/telemetry - returns masked entries to the Owner', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'owner@toko.id', password: 'password123' })
+      .expect(200);
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/auth/security/telemetry')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .expect(200);
+
+    expect(res.body.counters).toEqual(
+      expect.objectContaining({
+        failures: expect.any(Number),
+        lockouts: expect.any(Number),
+        blockedRequests: expect.any(Number),
+      }),
+    );
+    expect(Array.isArray(res.body.entries)).toBe(true);
+    // Every identifier returned must already be masked.
+    for (const entry of res.body.entries) {
+      expect(entry.identifier).not.toContain('kasir1@toko.id');
+    }
+  });
+
+  it('POST /api/v1/auth/login - rate limits repeated failures with 429', async () => {
+    let throttled: request.Response | undefined;
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: 'kasir1@toko.id', password: 'definitely-wrong' });
+
+      if (res.status === 429) {
+        throttled = res;
+        break;
+      }
+    }
+
+    expect(throttled).toBeDefined();
+    expect(throttled!.body).toEqual(
+      expect.objectContaining({
+        statusCode: 429,
+        error: 'TOO_MANY_REQUESTS',
+      }),
+    );
+  });
 });

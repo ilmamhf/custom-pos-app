@@ -52,10 +52,30 @@ Test direct navigation to `/sales`, `/products`, and a hard refresh.
 | `PORT` | optional | Defaults to 3000 |
 | `OFFLINE_GRANT_TTL` | optional | Defaults to `12h`; shorten if offline refunds are not a requirement |
 | `SWAGGER_ENABLED` | optional | Leave unset/`false` in production |
+| `TRUST_PROXY` | optional | Set `true` only behind a trusted reverse proxy so `X-Forwarded-For` is honoured for rate limits |
+| `THROTTLE_GLOBAL_LIMIT` / `THROTTLE_GLOBAL_TTL_MS` | optional | Global request budget per IP (default `120` per `60000` ms) |
+| `AUTH_LOGIN_THROTTLE_LIMIT` / `AUTH_LOGIN_THROTTLE_TTL_MS` | optional | Login attempts per IP (default `5` per `60000` ms) |
+| `AUTH_PIN_THROTTLE_LIMIT` / `AUTH_PIN_THROTTLE_TTL_MS` | optional | PIN verification attempts per IP (default `5` per `60000` ms) |
+| `AUTH_REFRESH_THROTTLE_LIMIT` / `AUTH_REFRESH_THROTTLE_TTL_MS` | optional | Token refresh attempts per IP (default `20` per `60000` ms) |
+| `AUTH_LOCKOUT_THRESHOLD` | optional | Failed logins/PINs before the account-scoped lockout opens (default `5`) |
+| `AUTH_LOCKOUT_WINDOW_MS` | optional | Failure counting window (default `900000`) |
+| `AUTH_LOCKOUT_DURATION_MS` / `AUTH_LOCKOUT_MAX_DURATION_MS` | optional | Base and capped lockout duration with escalating backoff (defaults `900000` / `3600000`) |
+| `AUTH_ALERT_WEBHOOK_URL` | optional | Receives `AUTH_LOCKOUT_ALERT` JSON; otherwise alerts are structured error logs only |
 
 Secrets must be injected by the platform secret store, not baked into images or
 committed `.env` files. Rotate `JWT_*` secrets on a schedule; note that rotating
 the access secret invalidates live access tokens.
+
+### Auth lockout telemetry
+
+Rate limiting uses `@nestjs/throttler`; failed logins and PIN checks also feed a
+process-local lockout tracker. On every lockout the API writes an
+`AUTH_LOCKOUT_ALERT` error log with masked identifiers, and POSTs the same JSON
+to `AUTH_ALERT_WEBHOOK_URL` when configured. Alert on that event in the log
+pipeline or webhook consumer. Owners can inspect the current snapshot at
+`GET /api/v1/auth/security/telemetry`. If the API is ever horizontally scaled,
+move the counter/lockout storage to Redis so all replicas share state (M-07).
+
 
 ## 3. Database migrations and seed
 

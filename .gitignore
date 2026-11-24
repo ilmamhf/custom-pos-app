@@ -45,6 +45,9 @@ apps/pos-flutter/patrol_videos/
 *.env
 .env.local
 
+# TLS certificates mounted into the containers
+deploy/nginx/certs/
+
 # Node.js
 node_modules/
 dist/

@@ -104,3 +104,80 @@ jobs:
       - name: React production dependencies
         working-directory: apps/admin-react
         run: npm audit --omit=dev
+
+  containers:
+    name: Container images (build + smoke test)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: pos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos -d pos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pos:pos@localhost:5432/pos?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-at-least-32-characters-long
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters-long
+      CORS_ORIGIN: https://admin.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api-nestjs
+          file: apps/api-nestjs/Dockerfile
+          push: false
+          load: true
+          tags: pos-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build Admin image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/admin-react
+          file: apps/admin-react/Dockerfile
+          push: false
+          load: true
+          tags: pos-admin:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Apply migrations with the API image
+        run: docker run --rm --network host -e DATABASE_URL pos-api:ci npx prisma migrate deploy
+      - name: Start the API and wait for readiness
+        run: |
+          docker run -d --name pos-api-ci --network host \
+            -e DATABASE_URL -e JWT_ACCESS_SECRET -e JWT_REFRESH_SECRET -e CORS_ORIGIN \
+            -e NODE_ENV=production pos-api:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/v1/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs pos-api-ci
+          exit 1
+      - name: Start the Admin and check the SPA and the API proxy
+        run: |
+          # `api` must resolve inside the container: the shared nginx config
+          # proxies /api/ to http://api:3000.
+          docker run -d --name pos-admin-ci --network host --add-host api:127.0.0.1 pos-admin:ci
+          for attempt in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:8080/ > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          curl -fsS http://127.0.0.1:8080/api/v1/health
+      - name: Container logs
+        if: always()
+        run: docker logs pos-api-ci; docker logs pos-admin-ci

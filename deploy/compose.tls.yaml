@@ -1,0 +1,18 @@
+# TLS override for the Compose stack.
+#
+# Usage:
+#   1. Put the certificate chain in ./deploy/nginx/certs/fullchain.pem
+#      and the private key in ./deploy/nginx/certs/privkey.pem
+#      (the directory is git-ignored).
+#   2. docker compose --profile app -f compose.yaml -f deploy/compose.tls.yaml up -d
+#
+# The admin container then terminates TLS on 8443 and redirects plain HTTP.
+
+services:
+  admin:
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./deploy/nginx/admin-tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro

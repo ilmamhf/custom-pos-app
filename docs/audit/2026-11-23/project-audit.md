@@ -32,11 +32,11 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | Local demo / developer workflow | ✅ Ready | Setup documented; all tests pass |
 | Single-store controlled pilot | ✅ Ready | P0 defects closed; live-test issues fixed |
 | Multi-store production rollout | ⚠️ Conditional | P1 financial/sync/auth work, M-02 token storage, and the D-01/D-02 dependency upgrades are complete; residual: negative-stock Admin UI surface |
-| Internet-facing deployment | ❌ Not ready | Above + printer hardware (M-08/R-05), observability stack (M-07) |
+| Internet-facing deployment | ❌ Not ready | Above + printer hardware (M-08/R-05) + the observability stack (M-07: deployment artifacts are done, metrics/traces/alerts and the backup drill are not) |
 
 ---
 
-## 2. Verification baseline (2026-11-24, after P1 + M-02)
+## 2. Verification baseline (2026-11-24, after P1 + M-02 + D-01/D-02 + M-07)
 
 | Check | Result |
 | --- | --- |
@@ -53,6 +53,9 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | `npm audit --omit=dev` (API) | 0 advisories (was 6: 1 critical, 5 high) |
 | `npm audit --omit=dev` (React) | 0 advisories (was 3: 1 high, 2 moderate) |
 | CI dependency audit | Blocking gate (`npm audit --omit=dev`, no `continue-on-error`) |
+| Container images | `pos-api` + `pos-admin` built; migrations, seed, liveness/readiness, SPA fallback and the `/api/` proxy verified in Docker |
+| Hardened containers | Both images run with a read-only root filesystem, a non-root user and all capabilities dropped |
+| TLS overlay | Self-signed certificate: HTTP → 301 redirect, HTTPS SPA → 200, HTTPS `/api/` proxy → 200, `Secure`/`HttpOnly`/`SameSite=Strict` cookies confirmed through the TLS chain |
 
 Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 
@@ -96,6 +99,12 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | P2.3 | Zod 4 + React Router 7 upgrade; React advisories cleared | D-02 | `097036b` |
 | P2.4 | Dependency audit becomes a blocking CI gate | D-01/D-02 | `097036b` |
 
+### Tasks completed (P3 — 2026-11-24)
+
+| # | Task | Findings addressed | Commit |
+|---|------|-------------------|--------|
+| P3.1 | Container images, Compose + Kubernetes manifests, probes, TLS, secret injection | M-07 | _pending_ |
+
 ### Tasks deferred
 
 | # | Task | Reason |
@@ -128,7 +137,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | **R-06** | No rate limiting on auth/PIN endpoints | **Fixed** | `@nestjs/throttler` global + strict auth routes; account lockout, masked telemetry, alert webhook |
 | **M-02** | React tokens in `localStorage` | **Fixed** | Access token in memory; refresh token in HttpOnly `SameSite=Strict` cookie; CSRF double-submit; native clients keep body tokens |
 | **M-04** | Flutter SQLite migration testing | **Partial** | Upgrade tests from v0→v1 on real devices needed |
-| **M-07** | Production deployment/observability incomplete | **Open** | Containers, probes, metrics, traces, alerts, backup drills |
+| **M-07** | Production deployment/observability incomplete | **Partial** | Deployment done (containers, Compose, K8s, probes, TLS, secrets); metrics, traces, alerts, backup drills still open |
 | **M-16** | Sales-date filter & staff edit workflows | **Open** | React date picker + server `from`/`to`; staff edit (not just toggle) |
 | **D-01** | API dependency advisories (6) | **Fixed** | Prisma 7.10.1 (driver adapter + `prisma.config.ts`), bcrypt 6 (drops node-pre-gyp/tar), `effect` override; `npm audit --omit=dev` → 0 advisories |
 | **D-02** | React dependency advisories (3) | **Fixed** | Zod 4.6.7 + `@hookform/resolvers` 7 + react-hook-form 7.92, React Router 7.18.6; `npm audit --omit=dev` → 0 advisories |
@@ -224,6 +233,7 @@ React Admin
 - [x] Fresh database bootstrap from committed Prisma migrations — verified 2026-11-24
 - [ ] CI running every verified command (push to trigger)
 - [x] Dependency audit policy with documented exceptions — blocking `npm audit --omit=dev` gate, 0 advisories
+- [x] Container images build, run non-root with a read-only root filesystem, apply migrations, and answer the liveness/readiness probes — verified 2026-11-24
 - [ ] Backup restore + multi-client sync under intermittent connectivity
 - [ ] DR drill with RPO/RTO measurement
 

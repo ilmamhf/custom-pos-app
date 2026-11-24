@@ -13,11 +13,101 @@ services:
       - "15432:5432"
     volumes:
       - pos-db-data:/var/lib/postgresql/data
+    networks:
+      - app
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pos -d pos"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  # One-shot job that applies prisma/migrations before the API serves traffic.
+  # Run it explicitly (`docker compose --profile app run --rm migrate`) or let
+  # the API service depend on it.
+  migrate:
+    build:
+      context: ./apps/api-nestjs
+    image: pos-api:latest
+    profiles: ["app"]
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://pos:pos@postgres:5432/pos?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+    restart: "no"
+
+  api:
+    build:
+      context: ./apps/api-nestjs
+    image: pos-api:latest
+    profiles: ["app"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgresql://pos:pos@postgres:5432/pos?schema=public
+      # Secrets are injected from the host environment (or an env file passed
+      # with --env-file); they are never baked into the image.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET must be set (>= 32 chars)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET must be set (>= 32 chars)}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      # Explicit allowlist in production; "*" is rejected by the API.
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must list the explicit admin origin}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      OFFLINE_GRANT_TTL: ${OFFLINE_GRANT_TTL:-12h}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+    networks:
+      app:
+        # A fixed address keeps the nginx upstream valid. nginx resolves
+        # `api` once at startup and keeps that address, so a recreated API
+        # container with a new dynamic IP would otherwise produce 502 errors
+        # until the Admin container is restarted.
+        ipv4_address: 172.28.0.10
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  admin:
+    build:
+      context: ./apps/admin-react
+    image: pos-admin:latest
+    profiles: ["app"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
 volumes:
   pos-db-data:
+
+networks:
+  app:
+    name: pos-app
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

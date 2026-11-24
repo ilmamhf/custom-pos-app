@@ -109,6 +109,44 @@ Every task below was committed separately on `main` with all suites green.
 - `.github/workflows/ci.yml`: the `dependency-audit` job dropped `continue-on-error: true` and the `|| echo "::warning::…"` fallbacks; it now runs `npm audit --omit=dev` for the API and the React app and fails the pipeline on any advisory.
 - No workflow in `.github/workflows` uses `continue-on-error` any more.
 
+### P3.1 — M-07: containerization and deployment artifacts (`_pending_`)
+
+**Images**
+
+- `apps/api-nestjs/Dockerfile`: multi-stage build on `node:22-bookworm-slim`. The build stage installs every dependency, runs `prisma generate` (Prisma 7 no longer generates on install) and compiles the NestJS output. The runtime stage keeps the production dependencies, the compiled output, the generated Prisma client and the migration history, and runs as the `node` user.
+- The runtime stage also carries the Prisma CLI, ts-node, TypeScript and the type packages the seed needs. npm skips `devDependencies` while `NODE_ENV=production`, so the `devDependencies` block is removed for that one install and the original `package.json` is restored afterwards. The image can therefore run `prisma migrate deploy` and `prisma db seed` offline, without pulling anything from a registry at runtime.
+- `apps/admin-react/Dockerfile`: the React bundle served by `nginxinc/nginx-unprivileged:1.27-alpine`, which runs as UID 101 and listens on 8080. No root privileges and no extra capabilities are needed.
+- `apps/admin-react/nginx.conf`: SPA fallback plus the `/api/` reverse proxy to `http://api:3000`, so the browser uses one origin and the session cookies stay first-party. An incoming `X-Forwarded-Proto` is forwarded unchanged, so the API still sees the original scheme when TLS is terminated further upstream.
+
+**Compose**
+
+- `compose.yaml` keeps PostgreSQL outside the `app` profile and adds `migrate`, `api`, and `admin` inside it. The migration service applies `prisma/migrations` before the API starts (`depends_on: service_completed_successfully`).
+- Secrets come from the host environment or `--env-file`. `${VAR:?…}` makes the stack fail fast instead of booting with a missing or wildcard secret. `CORS_ORIGIN` is required because the API refuses `*` in production.
+- The API container keeps the fixed address `172.28.0.10` on the `pos-app` network. nginx resolves `api` once at startup and keeps that address, so a recreated API container would otherwise return 502 errors until the Admin container is restarted.
+- `deploy/compose.tls.yaml` + `deploy/nginx/admin-tls.conf`: TLS termination in the Admin container. Certificates are mounted from `deploy/nginx/certs`, which is git-ignored.
+
+**Kubernetes**
+
+- `deploy/k8s/`: Namespace, ConfigMap, a Secret template, the migration Job, the API Deployment/Service, a PodDisruptionBudget, the Admin Deployment/Service, and the TLS Ingress.
+- The API Deployment uses `GET /api/v1/health` as the liveness and startup probe and `GET /api/v1/health/ready` as the readiness probe, so a database outage removes the pod from the Service instead of restarting it.
+- Both Deployments run as non-root with `readOnlyRootFilesystem: true` and all capabilities dropped. The Admin container mounts an `emptyDir` at `/tmp` because nginx writes its pid file and temporary paths there.
+- The migration Job runs `prisma migrate deploy` from the same image that serves the traffic. A Job's spec is immutable, so each release needs a fresh Job; the runbook documents the delete-and-reapply step.
+
+**CI**
+
+- `.github/workflows/ci.yml` gained a `containers` job that builds both images, applies the migrations with the API image, waits for the readiness probe, and checks the Admin SPA and its `/api/` proxy. It pushes nothing.
+
+**Verification** (Docker Desktop, local PostgreSQL)
+
+- `pos-api` and `pos-admin` build cleanly.
+- `prisma migrate deploy` and `npm run prisma:seed` both succeed inside the API image.
+- `/api/v1/health` and `/api/v1/health/ready` answer `200` with `{"status":"ready","database":"up"}`.
+- The Admin image serves the SPA, the SPA fallback answers `200` on a deep link, and `/api/v1/health` through the nginx proxy answers `200`.
+- Both images run with `--read-only --cap-drop ALL --security-opt no-new-privileges` and a non-root user (1000 for the API, 101 for nginx).
+- The TLS overlay was verified with a self-signed certificate: plain HTTP returns `301` to HTTPS, the HTTPS SPA returns `200`, the HTTPS `/api/` proxy returns `200`, and a login through the TLS chain returns `pos_refresh_token` with `HttpOnly; Secure; SameSite=Strict` and no refresh token in the body.
+
+**Side effect:** the local development database had been created with `prisma db push`, so its migration history was incomplete (one migration recorded as failed). The schema matched `schema.prisma` with zero drift, so the history was repaired with `prisma migrate resolve` only; no data was touched.
+
 ## Verification
 
 | Check | Result |
@@ -122,6 +160,9 @@ Every task below was committed separately on `main` with all suites green.
 | `flutter analyze` | no errors (28 info-level deprecations) |
 | `flutter build web` | passed |
 | Fresh DB migration bootstrap | zero drift |
+| Container images | `pos-api` + `pos-admin` built, migrations and seed applied from the image, liveness/readiness/SPA/proxy verified |
+| Hardened containers | read-only root filesystem, non-root user, all capabilities dropped |
+| TLS overlay | 301 redirect, HTTPS SPA, HTTPS `/api/` proxy, `Secure`/`HttpOnly`/`SameSite=Strict` cookies |
 
 Additional M-02 e2e coverage: cookie mode sets the right flags and omits the body refresh token; missing/wrong CSRF is rejected with 403; the correct double-submit rotates cookies; logout clears both cookies; the native body-token refresh still returns a refresh token.
 
@@ -134,3 +175,6 @@ Additional M-02 e2e coverage: cookie mode sets the right flags and omits the bod
 5. **Advisories.** Both production dependency trees are clean (`npm audit --omit=dev` → 0 for the API and the React app) and the CI dependency audit is a blocking gate.
 6. **Refresh rotation is stateless (M-02).** A rotated cookie produces a new `jti`, but the previously issued refresh token stays valid until expiry (7 days) or `tokenVersion` bump. Enforce one-time use with a jti denylist (Redis) before treating rotation as theft detection.
 7. **Prisma 7 keeps the classic generator (D-01).** The deprecated `prisma-client-js` provider is still used so the API stays CommonJS and no import paths change. Move to the `prisma-client` generator (custom `output`, generated imports) when the API is migrated to ESM.
+8. **M-07 is only half done.** The deployment side (images, Compose, Kubernetes, probes, TLS, secret injection) is complete. Metrics, traces, alerting, and the backup/restore drill are still open, so the stack is not yet observable in production.
+9. **The Kubernetes manifests are templates.** The image references (`ghcr.io/example/…`), the host name (`admin.example.com`), the Ingress class, the TLS secret, and the database URL must be replaced for a real cluster, and the Kubernetes manifests were validated by inspection and by an equivalent local Compose run, not by an actual cluster.
+10. **The auth lockout state is still process-local.** The Kubernetes Deployment scales the API to two replicas, so the lockout counters are not shared between them. Move that state to Redis before scaling beyond a single replica.

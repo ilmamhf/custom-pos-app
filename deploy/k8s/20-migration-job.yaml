@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pos-migrate
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-migrate
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/part-of: pos
+spec:
+  # A migration that fails must be retried, but a hot loop against a broken
+  # database is worse than a clear failure the operator has to look at.
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pos-migrate
+        app.kubernetes.io/part-of: pos
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/example/pos-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["npx", "prisma", "migrate", "deploy"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pos-secrets
+                  key: DATABASE_URL
+            # The CLI reads the connection string from prisma.config.ts, which
+            # falls back to DATABASE_URL.
+            - name: NODE_ENV
+              value: production
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

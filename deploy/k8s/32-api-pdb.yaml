@@ -1,0 +1,15 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pos-api
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: pos
+spec:
+  # Keeps one API pod serving while a node or cluster upgrade drains pods.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pos-api

@@ -22,6 +22,79 @@ Browser / device
 - The API container should listen on `PORT` and be reachable only through the
   edge/reverse proxy. Do not publish PostgreSQL publicly.
 
+### Container images (M-07)
+
+| Image | Dockerfile | Contents |
+| --- | --- | --- |
+| `pos-api` | `apps/api-nestjs/Dockerfile` | Production dependencies, compiled NestJS output, the generated Prisma client, the migration history, the Prisma CLI, and ts-node for the seed |
+| `pos-admin` | `apps/admin-react/Dockerfile` | The compiled React bundle behind unprivileged nginx (UID 101, port 8080) |
+
+- Both images run as a non-root user, declare a `HEALTHCHECK`, and work with a
+  read-only root filesystem and all Linux capabilities dropped.
+- The API image is also the migration runner. `npx prisma migrate deploy` runs
+  from the same image that serves the traffic, so the deployed artifact and the
+  schema history cannot diverge.
+- The Admin image proxies `/api/` to `http://api:3000`, so the browser talks to
+  a single origin and the session cookies stay first-party.
+- `deploy/README.md` holds the full build, Compose, and Kubernetes instructions.
+
+### Compose
+
+```bash
+docker compose up -d postgres
+docker compose --profile app up -d --build
+```
+
+- PostgreSQL runs outside the `app` profile; the profile holds the migration
+  job, the API, and the Admin.
+- The `migrate` service applies `prisma/migrations` before the API starts.
+  Compose runs it automatically through
+  `depends_on: { migrate: { condition: service_completed_successfully } }`.
+- The API container keeps a fixed address (`172.28.0.10`) on the `pos-app`
+  network. nginx resolves `api` once at startup and keeps that address, so a
+  recreated API container would otherwise return 502 errors until the Admin
+  container is restarted.
+- `docker compose --profile app run --rm migrate` re-runs the migrations by
+  hand.
+
+### Kubernetes
+
+`deploy/k8s/` contains the Namespace, ConfigMap, Secret template, migration
+Job, API and Admin Deployments with their Services, a PodDisruptionBudget, and
+the TLS Ingress. Apply order is documented in `deploy/README.md`; the short
+version is namespace → config → secret → migration Job → workloads → Ingress.
+
+- The API Deployment uses `GET /api/v1/health` as the liveness and startup
+  probe and `GET /api/v1/health/ready` as the readiness probe. A database
+  outage removes the pod from the Service instead of restarting it.
+- The Admin Deployment probes `GET /` on the nginx container.
+- The migration Job applies the schema before the API is rolled out. A Job's
+  spec is immutable, so each release needs a fresh Job
+  (`kubectl delete job pos-migrate` then apply it again).
+- Both Deployments run as non-root with `readOnlyRootFilesystem: true` and all
+  capabilities dropped.
+
+### Secret injection
+
+- Compose reads secrets from the host environment or from a file passed with
+  `--env-file`. `${VAR:?…}` makes the stack fail fast instead of booting with a
+  missing or wildcard secret.
+- Kubernetes reads them from the `pos-secrets` Secret. Use an external secret
+  manager (External Secrets Operator, Vault, AWS Secrets Manager) for a real
+  cluster and keep the filled-in Secret out of version control.
+- Never bake secrets into an image, and never commit a filled-in Secret.
+
+### TLS
+
+- Compose: `deploy/compose.tls.yaml` mounts `deploy/nginx/admin-tls.conf` and
+  the certificates from `deploy/nginx/certs`, and the Admin container serves
+  HTTPS on 8443 and redirects plain HTTP.
+- Kubernetes: the Ingress references the `pos-tls` Secret for the admin host.
+- The Admin nginx forwards an incoming `X-Forwarded-Proto` unchanged, so the
+  API still sees the original scheme when TLS is terminated further upstream.
+- The API needs `TRUST_PROXY=true` so `X-Forwarded-For` is used for the
+  rate-limit key instead of the proxy's address.
+
 ### SPA fallback (R-08)
 
 Serve unknown non-API routes from `index.html` so `BrowserRouter` deep links
@@ -132,6 +205,14 @@ Configure the orchestrator to restart on liveness failure and remove an
 instance from the load balancer on readiness failure. A readiness failure
 usually means the database is unreachable.
 
+| Runtime | Liveness | Readiness |
+| --- | --- | --- |
+| Docker Compose | `healthcheck` on `http://127.0.0.1:3000/api/v1/health` | `docker compose ps` shows `healthy` only when the database answers |
+| Kubernetes | `startupProbe` + `livenessProbe` on `/api/v1/health` | `readinessProbe` on `/api/v1/health/ready` |
+
+The probe paths are global-prefix aware, so they must be requested with the
+`/api/v1` prefix and without a trailing slash.
+
 ## 5. Backups and recovery (R-07)
 
 - Take automated encrypted PostgreSQL backups at least daily; retain according
@@ -159,21 +240,39 @@ usually means the database is unreachable.
 
 ## 7. Rate limiting and brute-force protection (R-06)
 
-Not yet implemented in code. Before internet exposure:
+Implemented. `@nestjs/throttler` applies a global per-IP budget and stricter
+per-route limits on `/auth/login`, `/auth/refresh`, and `/auth/verify-pin`.
+Failed logins and PIN checks additionally feed a process-local lockout tracker
+with escalating backoff.
 
-- Add `@nestjs/throttler` with a global limit and stricter limits on
-  `/auth/login`, `/auth/refresh`, and `/auth/verify-pin`.
-- Add account/IP lockout and audit telemetry for repeated PIN/password
-  failures.
-- Alert on spikes in authentication failures.
+Operational notes:
+
+- Tune the limits with the `THROTTLE_GLOBAL_*` and `AUTH_*_THROTTLE_*`
+  variables listed in section 2. The defaults are deliberately strict.
+- Set `TRUST_PROXY=true` behind the edge proxy, otherwise every request
+  arrives with the proxy's address and the per-IP limits become a global
+  limit.
+- The lockout state is process-local. Several API replicas behind one load
+  balancer each keep their own counters; move the state to Redis (M-07
+  follow-up) before scaling out.
+- Alert on the `AUTH_LOCKOUT_ALERT` log event and on the
+  `AUTH_ALERT_WEBHOOK_URL` deliveries.
 
 ## 8. Payment and offline behavior
 
-- `CASH`, `QRIS`, `CARD`, and `SPLIT` are stored as labels. There is no provider
-  integration, tender allocation, capture/void, or settlement (R-01). Treat
-  non-cash methods as manual until a provider contract is defined.
-- Negative stock is intentional for concurrent offline sales; define an
-  approval/write-off/alert policy (R-03).
+- The API exposes a configurable payment gateway: `IPaymentProvider` with a
+  generic REST implementation (`GenericPaymentProvider`). The provider
+  configuration (base URL, paths, credentials, signature mode) lives in the
+  `PaymentProvider.config` JSON column, so a new gateway is a configuration
+  change rather than a code change.
+- `SaleTender` rows hold the split payment breakdown (method, amount, change,
+  reference) and link to an optional `PaymentTransaction`. Authorize, capture,
+  void, and refund are implemented, webhook signatures are verified with
+  HMAC, and idempotency keys protect the write paths.
+- Negative stock is a deliberate policy, not an accident: the policy engine
+  supports `ALERT_ONLY`, `AUTO_TRANSFER`, `MANAGER_APPROVAL`, and `WRITE_OFF`,
+  and every escalation is recorded as a `NegativeStockEvent`. A per-store
+  policy overrides the global default.
 - The Flutter client reconciles pending sales on pull and retries failed outbox
   entries. Refunds require a manager PIN/offline grant; without a grant, the
   cashier must reconnect once.

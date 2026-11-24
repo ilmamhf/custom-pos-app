@@ -338,6 +338,32 @@ npx prisma migrate resolve --applied 20261123000000_init
 npm run prisma:migrate:deploy
 ```
 
+A migration that was interrupted before it finished is recorded in
+`_prisma_migrations` as failed. `migrate deploy` refuses to continue in that
+state. Check the schema first (`npx prisma migrate diff --from-config-datasource
+--to-schema prisma/schema.prisma --exit-code`); if it reports no difference,
+the objects are already there and only the history needs to be repaired:
+
+```powershell
+npx prisma migrate resolve --rolled-back <failed-migration>
+npx prisma migrate resolve --applied <failed-migration>
+```
+
+## Run the stack in containers
+
+The API and the React Admin ship as container images. The full instructions,
+including the Kubernetes manifests, are in [`deploy/README.md`](deploy/README.md).
+
+```bash
+docker compose up -d postgres
+docker compose --profile app up -d --build
+```
+
+- Admin: http://localhost:8080
+- API: http://localhost:3000/api/v1
+- The `app` profile needs `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, and
+  `CORS_ORIGIN` in the environment (or an `--env-file`).
+
 ## Current integration boundaries
 
 The local setup supports login, catalog, shift, sale, refund, inventory, report,

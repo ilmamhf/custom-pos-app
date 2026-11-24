@@ -378,6 +378,21 @@ docker compose --profile monitoring up -d
 - Prometheus: http://localhost:9090
 - Metrics: http://localhost:3000/metrics
 
+## Back up the database
+
+The database backups are encrypted with age, and every completed WAL segment
+is archived so a restore can roll forward to any point in time. A restore
+drill proves the backups are readable and measures the RTO.
+
+```bash
+docker compose up -d postgres
+docker compose --profile backup run --rm backup
+docker compose --profile backup run --rm restore-drill
+```
+
+The instructions, the RPO/RTO targets, and what the drill verifies are in
+[`deploy/backup/README.md`](deploy/backup/README.md).
+
 ## Current integration boundaries
 
 The local setup supports login, catalog, shift, sale, refund, inventory, report,

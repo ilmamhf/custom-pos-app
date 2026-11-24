@@ -1,0 +1,148 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pos-restore-drill
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-restore-drill
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: pos
+spec:
+  # A restore drill every quarter. A backup that has never been restored is
+  # an assumption, not a backup.
+  schedule: "23 2 1 1,4,7,10 *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 7200
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 2592000
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pos-restore-drill
+            app.kubernetes.io/component: backup
+            app.kubernetes.io/part-of: pos
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: restore-drill
+              image: ghcr.io/example/pos-backup:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/usr/local/bin/restore-drill.sh"]
+              env:
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: pos-secrets
+                      key: POSTGRES_USER
+                - name: PGDATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: pos-secrets
+                      key: POSTGRES_DB
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: pos-secrets
+                      key: POSTGRES_PASSWORD
+                # The drill is the only job that holds the private identity.
+                - name: BACKUP_AGE_IDENTITY
+                  value: /run/secrets/backup-age-identity
+                - name: BACKUP_DIR
+                  value: /backups
+                - name: WAL_ARCHIVE_DIR
+                  value: /wal-archive
+                # The drill starts its own instance, so it must not use the
+                # port of the production server.
+                - name: DRILL_PORT
+                  value: "55432"
+                - name: DRILL_REPORT_DIR
+                  value: /drill
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: wal-archive
+                  mountPath: /wal-archive
+                - name: age-identity
+                  mountPath: /run/secrets
+                  readOnly: true
+                - name: drill-report
+                  mountPath: /drill
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: pos-backups
+            - name: wal-archive
+              persistentVolumeClaim:
+                claimName: pos-pg-wal
+            # The private age identity. It is the only secret the drill needs
+            # on top of the database credentials, and the only reason the
+            # drill can prove that the backups are readable.
+            - name: age-identity
+              secret:
+                secretName: pos-backup-age
+                items:
+                  - key: identity
+                    path: backup-age-identity
+            # The report of the drill, so the result survives the pod.
+            - name: drill-report
+              persistentVolumeClaim:
+                claimName: pos-drill-report
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pos-drill-report
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-restore-drill
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: pos
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pos-backup-age
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: pos
+type: Opaque
+stringData:
+  # The public recipient: the same value as deploy/backup/age-recipient.txt.
+  # The private identity below is NOT the same file: it is the matching
+  # private key, and it must come from the operator's secret store.
+  recipient: "age1REPLACE_WITH_THE_PUBLIC_RECIPIENT"
+  # The private identity file, base64 encoded by `kubectl create secret`.
+  # Replace this with the real key before applying the manifest.
+  identity: "REPLACE_WITH_THE_BASE64_PRIVATE_IDENTITY"

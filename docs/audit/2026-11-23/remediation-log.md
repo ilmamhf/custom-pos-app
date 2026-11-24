@@ -192,6 +192,59 @@ Every task below was committed separately on `main` with all suites green.
 - Every response carries `x-request-id` and a `traceparent`. An inbound `traceparent` is continued with a new span id; a malformed one is replaced.
 - The API log lines are JSON objects, one per line.
 
+### P3.3 — M-07/R-07: encrypted backups, WAL archive, and restore drill (`_pending_`)
+
+**The image**
+
+- `deploy/backup/Dockerfile`: PostgreSQL 16 with `age`. The same image serves the database, the backup job, and the drill, so the tool and the server always speak the same major version, which `pg_basebackup` requires.
+- `deploy/backup/pos-entrypoint.sh`: the wrapper that fixes the ownership of the mounted volumes and then drops the privileges. Docker creates the named volumes owned by root, but the server and the jobs run as the unprivileged `postgres` user. Without it the WAL archive could not be written (`mkdir: cannot create directory '/wal-archive/wal': Permission denied`).
+
+**The backup job**
+
+- `deploy/backup/backup.sh`: a `pg_basebackup` in the tar format with `-X stream`, so the backup is consistent and carries the WAL it needs. A logical `pg_dump` could not be combined with the archived WAL for a point-in-time recovery, and that is where the RPO of 15 minutes comes from.
+- The base backup, the bundled WAL, and the manifest are encrypted with age. The public recipient is committed (`deploy/backup/age-recipient.txt`); the private identity is git-ignored and is only mounted into the drill.
+- The job cannot decrypt what it wrote — it only holds the public key, which is the point of an asymmetric key. It verifies the age file header instead, so a truncated encryption is caught at backup time rather than at restore time.
+- The metadata file is written last and holds the SHA-256 of the encrypted base backup. The drill verifies it, so a corrupted backup is reported as a storage failure instead of a restore failure.
+- The retention prunes by age first and by count second, and it removes the files of a backup as a set.
+
+**The WAL archive**
+
+- `archive_mode=on` with `archive_command=/usr/local/bin/archive-wal.sh`. Every completed segment is copied into the archive, encrypted, within `archive_timeout=300` seconds.
+- `deploy/backup/archive-wal.sh` is idempotent: a segment that is already in the archive is not written again, and the encryption goes to a temporary name that is moved into place, so a crash halfway through never leaves a truncated segment that looks complete.
+- A failing `archive_command` never blocks the database: PostgreSQL retries it and keeps the segment in `pg_wal`. The pile-up is visible in `pg_stat_archiver`.
+
+**The restore drill**
+
+- `deploy/backup/restore-drill.sh`: starts its own PostgreSQL instance on port 55432 with its own data directory. The production database is never touched.
+- The manifest names the WAL range the backup covers, and the end of that range is the recovery target. Without a target the instance waits for WAL that the production server has not written yet, which is what the first run of the drill did.
+- The drill verifies that the tables the application needs exist, that the row counts are readable, that every sale has a grand total, and that no tender points at a missing sale. The last check is the one that catches an inconsistent restore: the tenders are the split payments of a sale.
+- The newest archived WAL segment is decrypted and read with `pg_waldump`, which proves the archive is intact and usable. `pg_waldump` derives the start location from the segment name, so the segment has to sit in a directory named `pg_wal`.
+- The elapsed time is the measured RTO. It is written to `report.json` and published as a Prometheus metric.
+
+**The authentication rules**
+
+- `deploy/backup/pg_hba.conf` replaces the rules that `initdb` writes, because the default rules only allow a replication connection from localhost and the backup job runs in its own container. The committed file allows the replication connection for the `pos` role with `scram-sha-256`.
+- `pg_basebackup` opens a physical replication connection, and a plain database name is parsed as a conninfo string, which fails. The connection is given as a conninfo string (`host=… port=… user=… dbname=postgres`).
+
+**The metrics**
+
+- The backup job and the drill publish their results through the node_exporter textfile collector, so the `PosBackupStale` and `PosBackupMetricMissing` rules have a signal: `pos_backup_last_success_timestamp_seconds`, `pos_backup_last_drill_timestamp_seconds`, and `pos_backup_last_drill_duration_seconds`.
+- Every metric gets its own file. The first version wrote them all into one file, and the drill overwrote the timestamp of the backup.
+
+**The deployment**
+
+- `compose.yaml`: the `backup` profile holds the `backup` and `restore-drill` services. The PostgreSQL service now runs the backup image with the WAL archiving enabled, and the `monitoring` profile gained a `node-exporter` service.
+- `deploy/k8s/70-backup-cronjob.yaml` and `71-restore-drill-cronjob.yaml`: the daily backup and the quarterly drill. The backup job must not carry the private age identity, and the drill must; the offline validator checks both.
+- `deploy/backup/README.md`: the keypair, the jobs, the targets, what the drill proves, and the limitations.
+
+**Verification** (Docker Desktop, local PostgreSQL)
+
+- The WAL archive fills up: the segments appear in `/wal-archive/wal`, encrypted, 16 MB each.
+- The backup job writes the encrypted base backup, the bundled WAL, the manifest, and the metadata; it verifies the age headers and prunes the old backups.
+- The restore drill passes: 18 tables, 2 stores, 25 products, 23 sales, 21 tenders, recovered to the LSN the manifest names, in 4 seconds.
+- The archived WAL segment decrypts and is readable with `pg_waldump`.
+- `pos_backup_last_success_timestamp_seconds` reaches Prometheus through the node_exporter textfile collector, and both backup alerts resolve to inactive.
+
 ## Verification
 
 | Check | Result |
@@ -211,6 +264,11 @@ Every task below was committed separately on `main` with all suites green.
 | Prometheus configuration | `promtool check config` → 1 rule file, 16 rules, valid |
 | Prometheus rules | `promtool test rules` → all unit tests pass |
 | Prometheus (live) | the `pos-api` target scrapes successfully, the rules load and evaluate, the readiness gauge follows the database |
+| Encrypted backup | the base backup, the bundled WAL, and the manifest are encrypted; the metadata checksum verifies |
+| WAL archive | the encrypted segments appear in the archive and the drill reads one back with `pg_waldump` |
+| Restore drill | passed: 18 tables, 2 stores, 25 products, 23 sales, 21 tenders; RTO measured at 4 seconds |
+| Backup metrics | `pos_backup_last_success_timestamp_seconds` reaches Prometheus; both backup alerts resolve to inactive |
+| Kubernetes manifests | 18 resources from 14 files, all offline checks pass |
 
 Additional M-02 e2e coverage: cookie mode sets the right flags and omits the body refresh token; missing/wrong CSRF is rejected with 403; the correct double-submit rotates cookies; logout clears both cookies; the native body-token refresh still returns a refresh token.
 
@@ -223,10 +281,12 @@ Additional M-02 e2e coverage: cookie mode sets the right flags and omits the bod
 5. **Advisories.** Both production dependency trees are clean (`npm audit --omit=dev` → 0 for the API and the React app) and the CI dependency audit is a blocking gate.
 6. **Refresh rotation is stateless (M-02).** A rotated cookie produces a new `jti`, but the previously issued refresh token stays valid until expiry (7 days) or `tokenVersion` bump. Enforce one-time use with a jti denylist (Redis) before treating rotation as theft detection.
 7. **Prisma 7 keeps the classic generator (D-01).** The deprecated `prisma-client-js` provider is still used so the API stays CommonJS and no import paths change. Move to the `prisma-client` generator (custom `output`, generated imports) when the API is migrated to ESM.
-8. **M-07 is only half done.** The deployment side (images, Compose, Kubernetes, probes, TLS, secret injection) and the observability side (JSON logs, Prometheus metrics, W3C tracing, 16 alert rules with a runbook) are complete. The encrypted PostgreSQL backup and the restore drill are still open, so the data-loss side of the readiness story is not there yet.
+8. **M-07 is complete, but the operator work is not.** The deployment side (images, Compose, Kubernetes, probes, TLS, secret injection), the observability side (JSON logs, Prometheus metrics, W3C tracing, 16 alert rules with a runbook), and the data-protection side (encrypted backups, the WAL archive, the restore drill with the RTO measured) are done. What is left is operational: the age private identity has to be in the secret store, the backups have to be copied outside the deployment, and the alert rules have to be wired to a notification channel.
 9. **The Kubernetes manifests are templates.** The image references (`ghcr.io/example/…`), the host name (`admin.example.com`), the Ingress class, the TLS secret, and the database URL must be replaced for a real cluster, and the Kubernetes manifests were validated by inspection and by an equivalent local Compose run, not by an actual cluster.
 10. **The auth lockout state is still process-local.** The Kubernetes Deployment scales the API to two replicas, so the lockout counters are not shared between them. Move that state to Redis before scaling beyond a single replica.
 11. **The alerts are not wired to a notification channel.** The rules load and evaluate, and every rule carries a `runbook_url` annotation, but pointing Alertmanager at them (and choosing the routing for the `severity` label) is left to the operator. There is no Grafana dashboard in the repository either.
 12. **The tracing is W3C context propagation without a collector.** The API continues an inbound `traceparent` and answers with its own, so the edge and the API share a trace id, but no OpenTelemetry SDK, span exporter, or trace backend is wired up. Add the SDK when a collector exists to receive the spans.
-13. **The backup rules wait for the backup job.** `PosBackupStale` and `PosBackupMetricMissing` expect `pos_backup_last_success_timestamp_seconds`, which the backup job has to publish through a node_exporter textfile collector or a Pushgateway. Until roadmap item 11 exists, the metric is absent and the missing-metric rule stays pending.
-14. **The metrics endpoint is open by default.** That is correct when the API sits on a private network. `METRICS_AUTH_TOKEN` and `METRICS_ENABLED=false` exist for the other cases, but the default is not locked down.
+13. **The backups live in the deployment.** The encrypted files are on a volume of the same cluster, which is a copy and not a backup. Copy them to an object store, and encrypt them again with a key that the object store does not hold.
+14. **Nothing prunes the WAL archive.** `archive_mode=on` archives every segment and there is no retention job for them, so a long-running deployment fills the WAL volume.
+15. **The drill restores on the same node.** It proves that the backups are readable, that the data is complete, and that the archive is usable, and it measures the restore time. It does not prove that the failover procedure of the production cluster works.
+16. **The metrics endpoint is open by default.** That is correct when the API sits on a private network. `METRICS_AUTH_TOKEN` and `METRICS_ENABLED=false` exist for the other cases, but the default is not locked down.

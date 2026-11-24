@@ -27,6 +27,15 @@ scrape_configs:
     #   type: Bearer
     #   credentials_file: /etc/prometheus/secrets/pos-metrics-token
 
+  # The textfile collector of node_exporter publishes the metrics of the
+  # cron jobs, currently the age of the newest database backup.
+  - job_name: node-exporter
+    static_configs:
+      - targets:
+          - node-exporter:9100
+        labels:
+          service: node-exporter
+
   # Prometheus' own metrics, so the dashboard can show the scrape health.
   - job_name: prometheus
     static_configs:

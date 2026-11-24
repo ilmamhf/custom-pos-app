@@ -1,0 +1,145 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pos-backup
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: pos
+spec:
+  # A daily base backup. The runbook asks for at least one per day; the WAL
+  # archive covers the time in between and gives the RPO of 15 minutes.
+  schedule: "17 1 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  # A backup that failed must not be retried in a loop: the operator has to
+  # look at it, and a broken archive or a full disk would fail again.
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: pos-backup
+            app.kubernetes.io/component: backup
+            app.kubernetes.io/part-of: pos
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: ghcr.io/example/pos-backup:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/usr/local/bin/backup.sh"]
+              env:
+                - name: PGHOST
+                  value: postgres
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: pos-secrets
+                      key: POSTGRES_USER
+                - name: PGDATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: pos-secrets
+                      key: POSTGRES_DB
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: pos-secrets
+                      key: POSTGRES_PASSWORD
+                # The public recipient: the job only encrypts, it never
+                # decrypts, so it does not need the private identity.
+                - name: BACKUP_AGE_RECIPIENT
+                  valueFrom:
+                    secretKeyRef:
+                      name: pos-backup-age
+                      key: recipient
+                - name: BACKUP_DIR
+                  value: /backups
+                - name: WAL_ARCHIVE_DIR
+                  value: /wal-archive
+                - name: BACKUP_RETENTION_DAYS
+                  value: "14"
+                - name: BACKUP_RETENTION_COUNT
+                  value: "14"
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: wal-archive
+                  mountPath: /wal-archive
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            # The backups leave the cluster: a PersistentVolume that is only
+            # in the cluster is not a backup. Replace the claim with the
+            # storage of your choice (an object store bucket mounted through
+            # a CSI driver, for example).
+            - name: backups
+              persistentVolumeClaim:
+                claimName: pos-backups
+            # The WAL archive has to be readable by the database server, so
+            # it is usually shared with it.
+            - name: wal-archive
+              persistentVolumeClaim:
+                claimName: pos-pg-wal
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pos-backups
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: pos
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Enough for 14 daily backups of a small store database. The size has
+      # to be adjusted for the real data volume.
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pos-pg-wal
+  namespace: pos
+  labels:
+    app.kubernetes.io/name: pos-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: pos
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # The archived WAL grows by 16 MB per segment. With an archive timeout
+      # of five minutes this holds roughly a month of WAL.
+      storage: 20Gi

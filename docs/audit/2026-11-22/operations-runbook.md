@@ -220,14 +220,104 @@ The probe paths are global-prefix aware, so they must be requested with the
 
 ## 5. Backups and recovery (R-07)
 
-- Take automated encrypted PostgreSQL backups at least daily; retain according
-  to business policy.
-- Define RPO/RTO explicitly. A pragmatic starting point: RPO ≤ 15 minutes with
-  WAL archiving, RTO ≤ 1 hour.
-- Run a restore drill into an isolated environment at least quarterly and
-  record the result. A backup is not verified until it has been restored.
-- Store backups outside the database host and restrict access to operators.
-- Document data-retention and export obligations for sales/personal data.
+Implemented. The tooling lives in `deploy/backup/`, the runbook of the
+tooling is [`deploy/backup/README.md`](../../../deploy/backup/README.md).
+
+### The targets
+
+| Target | Value | How it is met |
+|---|---|---|
+| RPO | 15 minutes | Every completed WAL segment is archived, encrypted, within five minutes of being written |
+| RTO | Under 1 hour | The measured restore drill takes seconds on the reference data set |
+| Backup frequency | Daily | A base backup (`pg_basebackup`) plus the continuous WAL archive |
+| Retention | 14 days / 14 backups | `BACKUP_RETENTION_DAYS` and `BACKUP_RETENTION_COUNT` |
+| Drill frequency | Quarterly | A restore drill into an isolated instance, with the result recorded |
+
+### The encryption
+
+The backups are encrypted with [age](https://age-encryption.org) before they
+leave the job, using an asymmetric keypair:
+
+- The **public recipient** encrypts. The backup job and the database server
+  only need it. The committed `deploy/backup/age-recipient.txt` is not a
+  secret.
+- The **private identity** decrypts. Only the restore drill gets it, and only
+  for the length of the drill. `deploy/backup/age-identity.txt` is
+  git-ignored.
+
+**The private identity has to be in the operator's secret store.** A backup
+that can only be decrypted by the machine that wrote it is not a backup. If
+the identity is lost, every backup taken with that keypair is lost with it.
+
+### The jobs
+
+```bash
+# The database, with the WAL archiving enabled
+docker compose up -d postgres
+
+# The encrypted base backup
+docker compose --profile backup run --rm backup
+
+# The restore drill
+docker compose --profile backup run --rm restore-drill
+```
+
+In Kubernetes the same two jobs are CronJobs
+(`deploy/k8s/70-backup-cronjob.yaml` and `71-restore-drill-cronjob.yaml`):
+the backup runs daily at 01:17 UTC, the drill on the first day of January,
+April, July, and October at 02:23 UTC.
+
+### What the drill proves
+
+A backup that has never been restored is an assumption. The drill starts its
+own PostgreSQL instance on port 55432, restores the newest backup into it,
+replays the archived WAL up to the end of the range the backup covers, and
+checks the result:
+
+- the tables the application needs exist,
+- the row counts are readable,
+- every sale has a grand total,
+- no tender points at a missing sale,
+- the newest archived WAL segment decrypts and is readable as WAL.
+
+The elapsed time is the measured RTO. It is written to `report.json` and
+published as a Prometheus metric. The drill exits non-zero on any failure,
+which is what the scheduler has to see.
+
+### The alerts
+
+| Alert | Severity | Fires when |
+|---|---|---|
+| `PosBackupStale` | critical | The last successful backup is older than 26 hours |
+| `PosBackupMetricMissing` | warning | No backup success timestamp is published for 24 hours |
+
+Both read the metrics the backup job publishes through the node_exporter
+textfile collector:
+
+```bash
+curl -s http://localhost:9100/metrics | grep pos_backup
+```
+
+### When an alert fires
+
+1. Check whether the job ran: `kubectl get jobs -n pos` (Kubernetes) or the
+   scheduler log (Cron).
+2. Run the backup by hand and read the error. The job fails on a missing
+   recipient, a full volume, and an unreachable database.
+3. Check the WAL archive. A failing `archive_command` never blocks the
+   database, but it means the RPO is not met until it is fixed:
+   `SELECT * FROM pg_stat_archiver;` on the server.
+4. If the backup succeeds but the drill fails, the backup is the suspect.
+   Do not delete it: keep it for the investigation.
+
+### Still open
+
+- Copy the encrypted backups to storage outside the deployment. A volume in
+  the same cluster is a copy, not a backup.
+- Nothing prunes the WAL archive. Add a retention job for the archived
+  segments.
+- The data-retention and export obligations for sales and personal data are
+  a business decision and are not implemented here.
 
 ## 6. Observability
 

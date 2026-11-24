@@ -191,6 +191,106 @@ jobs:
         if: always()
         run: docker logs pos-api-ci; docker logs pos-admin-ci
 
+  backup:
+    name: Backups (encrypted backup + restore drill)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the backup image
+        run: docker build -t pos-backup:ci -f deploy/backup/Dockerfile deploy/backup
+      - name: Generate the age keypair
+        run: |
+          # The committed recipient is overwritten on purpose: CI proves the
+          # whole flow with a keypair it generates itself.
+          docker run --rm -v "$PWD/deploy/backup:/backup" --entrypoint bash pos-backup:ci /backup/age-keygen.sh
+          grep -q '^age1' deploy/backup/age-recipient.txt
+          test -s deploy/backup/age-identity.txt
+      - name: Start PostgreSQL with the WAL archiving
+        run: |
+          docker volume create pos-ci-wal
+          docker volume create pos-ci-backups
+          docker volume create pos-ci-textfile
+          docker run -d --name pos-pg-ci --network host \
+            -e POSTGRES_USER=pos -e POSTGRES_PASSWORD=pos -e POSTGRES_DB=pos \
+            -e BACKUP_AGE_RECIPIENT_FILE=/etc/backup/age-recipient.txt \
+            -v pos-ci-wal:/wal-archive \
+            -v "$PWD/deploy/backup/age-recipient.txt:/etc/backup/age-recipient.txt:ro" \
+            -v "$PWD/deploy/backup/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro" \
+            pos-backup:ci postgres \
+              -c archive_mode=on \
+              -c 'archive_command=/usr/local/bin/archive-wal.sh "%p" "%f"' \
+              -c archive_timeout=300 \
+              -c hba_file=/etc/postgresql/pg_hba.conf
+          for attempt in $(seq 1 30); do
+            if docker exec pos-pg-ci pg_isready -U pos -d pos; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs pos-pg-ci
+          exit 1
+      - name: Build the API image and apply the migrations
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api-nestjs
+          file: apps/api-nestjs/Dockerfile
+          push: false
+          load: true
+          tags: pos-api:ci
+      - name: Apply the migrations and seed the database
+        run: |
+          export DATABASE_URL='postgresql://pos:pos@127.0.0.1:5432/pos?schema=public'
+          docker run --rm --network host -e DATABASE_URL pos-api:ci npx prisma migrate deploy
+          docker run --rm --network host -e DATABASE_URL pos-api:ci npm run prisma:seed
+      - name: Take the encrypted backup
+        run: |
+          docker run --rm --network host \
+            -e PGHOST=127.0.0.1 -e PGPORT=5432 -e PGUSER=pos -e PGPASSWORD=pos -e PGDATABASE=pos \
+            -e BACKUP_AGE_RECIPIENT_FILE=/etc/backup/age-recipient.txt \
+            -e PROMETHEUS_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
+            -v pos-ci-backups:/backups \
+            -v pos-ci-wal:/wal-archive \
+            -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \
+            -v "$PWD/deploy/backup/age-recipient.txt:/etc/backup/age-recipient.txt:ro" \
+            --entrypoint /usr/local/bin/pos-entrypoint.sh \
+            pos-backup:ci /usr/local/bin/backup.sh
+      - name: Check that the backup is encrypted and complete
+        run: |
+          docker run --rm \
+            -e PROMETHEUS_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
+            -v pos-ci-backups:/backups \
+            -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \
+            --entrypoint /usr/local/bin/pos-entrypoint.sh \
+            pos-backup:ci /usr/local/bin/verify-backup.sh
+      - name: Run the restore drill
+        run: |
+          docker volume create pos-ci-drill
+          docker run --rm --network host \
+            -e PGUSER=pos -e PGPASSWORD=pos -e PGDATABASE=pos \
+            -e BACKUP_AGE_IDENTITY=/run/secrets/backup-age-identity \
+            -e DRILL_PORT=55432 \
+            -e DRILL_REPORT_DIR=/drill \
+            -e PROMETHEUS_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
+            -v pos-ci-backups:/backups \
+            -v pos-ci-wal:/wal-archive \
+            -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \
+            -v pos-ci-drill:/drill \
+            -v "$PWD/deploy/backup/age-identity.txt:/run/secrets/backup-age-identity:ro" \
+            --entrypoint /usr/local/bin/pos-entrypoint.sh \
+            pos-backup:ci /usr/local/bin/restore-drill.sh
+      - name: Check the drill report
+        run: |
+          docker run --rm \
+            -e DRILL_REPORT_DIR=/drill \
+            -v pos-ci-backups:/backups \
+            -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \
+            -v pos-ci-drill:/drill \
+            --entrypoint /usr/local/bin/pos-entrypoint.sh \
+            pos-backup:ci /usr/local/bin/verify-backup.sh
+      - name: Container logs
+        if: always()
+        run: docker logs pos-pg-ci
+
   monitoring:
     name: Monitoring (Prometheus config + alert rules)
     runs-on: ubuntu-latest

@@ -2,17 +2,48 @@ name: pos
 
 services:
   postgres:
-    image: postgres:16
+    build:
+      context: ./deploy/backup
+      dockerfile: Dockerfile
+    image: pos-postgres:latest
     container_name: pos-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: pos
       POSTGRES_PASSWORD: pos
       POSTGRES_DB: pos
+      # The WAL archive is what gives the RPO of 15 minutes: every completed
+      # WAL segment is copied into the archive (encrypted) so a restore can
+      # roll forward to any point in time.
+      #
+      # `archive_mode=on` only starts archiving after the first successful
+      # base backup, and a failing archive_command never blocks the database:
+      # PostgreSQL retries it and keeps the segment in pg_wal.
+      BACKUP_AGE_RECIPIENT_FILE: /etc/backup/age-recipient.txt
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=/usr/local/bin/archive-wal.sh "%p" "%f"
+      - -c
+      - archive_timeout=300
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=3
+      # The committed rules replace the ones initdb writes: the default
+      # rules only allow a replication connection from localhost, and the
+      # backup job runs in its own container.
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
     ports:
       - "15432:5432"
     volumes:
       - pos-db-data:/var/lib/postgresql/data
+      - pos-pg-wal:/wal-archive
+      - ./deploy/backup/age-recipient.txt:/etc/backup/age-recipient.txt:ro
+      - ./deploy/backup/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     networks:
       - app
     healthcheck:
@@ -121,6 +152,9 @@ services:
       # `rule_files` in prometheus.yml points at.
       - ./deploy/monitoring/prometheus-rules.yaml:/etc/prometheus/rules/prometheus-rules.yaml:ro
       - pos-prometheus-data:/prometheus
+      # The backup job publishes the backup age here, so the `PosBackupStale`
+      # rule has something to read.
+      - pos-prometheus-textfile:/var/lib/node_exporter/textfile_collector:ro
     ports:
       - "9090:9090"
     networks:
@@ -136,9 +170,101 @@ services:
       start_period: 10s
       retries: 3
 
+  # Exposes the textfile collector directory, which is where the backup job
+  # publishes the age of the newest backup. This is the standard way to get
+  # a value from a cron job into Prometheus.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: pos-node-exporter
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --collector.textfile.directory=/textfile
+      - --collector.disable-defaults
+      - --collector.textfile
+    volumes:
+      - pos-prometheus-textfile:/textfile:ro
+    networks:
+      - app
+
+  # One-shot job that takes the encrypted base backup. Run it by hand with
+  # `docker compose --profile backup run --rm backup`, or let the scheduler
+  # do it (see deploy/k8s/70-backup-cronjob.yaml for the Kubernetes job).
+  backup:
+    build:
+      context: ./deploy/backup
+      dockerfile: Dockerfile
+    image: pos-backup:latest
+    profiles: ["backup"]
+    restart: "no"
+    # The image default is the database server; this service runs the
+    # backup job instead.
+    command: ["/usr/local/bin/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: pos
+      PGDATABASE: pos
+      # The replication connection for pg_basebackup uses the same password.
+      PGPASSWORD: ${POSTGRES_PASSWORD:-pos}
+      BACKUP_DIR: /backups
+      WAL_ARCHIVE_DIR: /wal-archive
+      BACKUP_AGE_RECIPIENT_FILE: /etc/backup/age-recipient.txt
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-14}
+      # The node_exporter textfile collector reads the backup metrics here.
+      PROMETHEUS_TEXTFILE_DIR: /var/lib/node_exporter/textfile_collector
+    volumes:
+      - pos-backups:/backups
+      - pos-pg-wal:/wal-archive
+      - ./deploy/backup/age-recipient.txt:/etc/backup/age-recipient.txt:ro
+      - pos-prometheus-textfile:/var/lib/node_exporter/textfile_collector
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+
+  # Restores the newest encrypted backup into a scratch instance and verifies
+  # it. The private age identity is mounted here and nowhere else.
+  restore-drill:
+    build:
+      context: ./deploy/backup
+      dockerfile: Dockerfile
+    image: pos-backup:latest
+    profiles: ["backup"]
+    restart: "no"
+    command: ["/usr/local/bin/restore-drill.sh"]
+    environment:
+      PGUSER: pos
+      PGDATABASE: pos
+      PGPASSWORD: ${POSTGRES_PASSWORD:-pos}
+      BACKUP_DIR: /backups
+      WAL_ARCHIVE_DIR: /wal-archive
+      BACKUP_AGE_IDENTITY: /run/secrets/backup-age-identity
+      DRILL_PORT: "55432"
+      DRILL_REPORT_DIR: /drill
+      PROMETHEUS_TEXTFILE_DIR: /var/lib/node_exporter/textfile_collector
+    volumes:
+      - pos-backups:/backups
+      - pos-pg-wal:/wal-archive
+      # The private key. Keep it out of version control and out of the image.
+      - ${BACKUP_AGE_IDENTITY_FILE:-./deploy/backup/age-identity.txt}:/run/secrets/backup-age-identity:ro
+      - pos-prometheus-textfile:/var/lib/node_exporter/textfile_collector
+      - pos-drill-report:/drill
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+
 volumes:
   pos-db-data:
   pos-prometheus-data:
+  pos-backups:
+  pos-pg-wal:
+  pos-prometheus-textfile:
+  pos-drill-report:
 
 networks:
   app:

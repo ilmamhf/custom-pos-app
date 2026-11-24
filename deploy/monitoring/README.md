@@ -161,18 +161,33 @@ alerts fire. Add a case whenever a rule changes.
 ## The backup metric
 
 `PosBackupStale` and `PosBackupMetricMissing` expect the metric
-`pos_backup_last_success_timestamp_seconds`, published by the backup job.
-Until the automated backups are in place (roadmap item 11), no backup job
-publishes it, so `PosBackupMetricMissing` is pending and `PosBackupStale`
-stays silent. Both alerts are documented in the operations runbook.
+`pos_backup_last_success_timestamp_seconds`, which the backup job publishes
+through the node_exporter textfile collector. The drill publishes two more:
+`pos_backup_last_drill_timestamp_seconds` and
+`pos_backup_last_drill_duration_seconds` (the measured RTO).
 
-Two ways to publish the metric, both supported by Prometheus:
+The `monitoring` profile runs a `node-exporter` service that reads the
+textfile collector directory:
 
-- **node_exporter textfile collector**: the backup script writes
-  `/var/lib/node_exporter/textfile_collector/pos_backup.prom` with
-  `pos_backup_last_success_timestamp_seconds <unix timestamp>`.
-- **Pushgateway**: the backup script pushes the gauge to a Pushgateway, and
-  the Pushgateway is scraped like any other target.
+```bash
+docker compose --profile monitoring up -d node-exporter
+curl -s http://localhost:9100/metrics | grep pos_backup
+```
+
+```text
+# HELP pos_backup_last_success_timestamp_seconds Unix timestamp of the last successful encrypted database backup.
+# TYPE pos_backup_last_success_timestamp_seconds gauge
+pos_backup_last_success_timestamp_seconds 1795497978
+```
+
+The backup jobs write one file per metric into the collector directory. The
+directory is a volume that the backup job writes and node_exporter reads
+read-only.
+
+If the backup runs somewhere else (a Kubernetes CronJob, for example), the
+metric has to be published from there. The node_exporter textfile collector
+and a Pushgateway are the two ways Prometheus supports; the tooling in
+`deploy/backup/` uses the textfile collector.
 
 ## Structured logs
 
@@ -215,4 +230,5 @@ it calls share one trace id.
   names above are the intended starting points for one.
 - The lockout counters behind `pos_auth_lockouts_total` are process-local.
   With more than one API replica, the counts are per replica.
-- The backup rules depend on a metric that the backup job has to publish.
+- The backup rules depend on the backup job running and on the
+  node_exporter textfile collector being wired up.

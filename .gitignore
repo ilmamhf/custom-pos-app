@@ -48,6 +48,12 @@ apps/pos-flutter/patrol_videos/
 # TLS certificates mounted into the containers
 deploy/nginx/certs/
 
+# The private age identity that decrypts the database backups.
+# The public recipient (deploy/backup/age-recipient.txt) is committed, but
+# the matching private key must never be: without it the backups cannot be
+# restored.
+deploy/backup/age-identity.txt
+
 # Node.js
 node_modules/
 dist/

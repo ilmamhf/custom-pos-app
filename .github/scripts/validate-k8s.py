@@ -10,6 +10,7 @@ Run from the repository root:
 """
 
 import glob
+import json
 import os
 import sys
 
@@ -173,6 +174,11 @@ for (kind, name), doc in resources.items():
         for container in pod_spec.get("containers", []):
             where = f"Job/{name}/{container.get('name')}"
             check_env(where, container.get("env"), where)
+    if kind == "CronJob":
+        pod_spec = doc["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        for container in pod_spec.get("containers", []):
+            where = f"CronJob/{name}/{container.get('name')}"
+            check_env(where, container.get("env"), where)
 
 # The migration Job must run the migration command.
 for (kind, name), doc in resources.items():
@@ -180,6 +186,54 @@ for (kind, name), doc in resources.items():
         command = " ".join(doc["spec"]["template"]["spec"]["containers"][0].get("command", []))
         if "migrate" not in command or "deploy" not in command:
             fail(f"Job/{name}: command {command!r} does not run 'migrate deploy'")
+
+# The backup CronJobs must run the scripts of the backup image, and their
+# PersistentVolumeClaims must exist.
+pvc_names = {name for (kind, name), doc in resources.items() if kind == "PersistentVolumeClaim"}
+EXPECTED_CRONJOBS = {
+    "pos-backup": "/usr/local/bin/backup.sh",
+    "pos-restore-drill": "/usr/local/bin/restore-drill.sh",
+}
+for name, expected_command in EXPECTED_CRONJOBS.items():
+    if ("CronJob", name) not in resources:
+        fail(f"CronJob/{name} is missing")
+        continue
+    pod_spec = resources[("CronJob", name)]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    containers = pod_spec.get("containers", [])
+    if not containers:
+        fail(f"CronJob/{name}: no container")
+        continue
+    command = " ".join(containers[0].get("command", []))
+    if expected_command not in command:
+        fail(f"CronJob/{name}: command {command!r} does not run {expected_command!r}")
+    for volume in pod_spec.get("volumes", []):
+        claim = volume.get("persistentVolumeClaim")
+        if claim and claim.get("claimName") not in pvc_names:
+            fail(f"CronJob/{name}: claim {claim['claimName']!r} is not declared")
+
+# The backup job may only encrypt: it must not carry the private age
+# identity. The drill is the only job that decrypts, so it must have it.
+for name in EXPECTED_CRONJOBS:
+    if ("CronJob", name) not in resources:
+        continue
+    pod_spec = resources[("CronJob", name)]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    identity = json.dumps(pod_spec)
+    has_identity = "backup-age-identity" in identity or "BACKUP_AGE_IDENTITY" in identity
+    if name == "pos-backup" and has_identity:
+        fail(f"CronJob/{name}: the backup job must not have the private age identity")
+    if name == "pos-restore-drill" and not has_identity:
+        fail(f"CronJob/{name}: the restore drill needs the private age identity")
+
+# The age Secret must declare both the public recipient and the private
+# identity.
+if "pos-backup-age" not in secrets:
+    fail("Secret/pos-backup-age is missing: the backup jobs need the age keypair")
+else:
+    age_secret = secrets["pos-backup-age"]
+    declared = set(age_secret.get("stringData", {})) | set(age_secret.get("data", {}))
+    for key in ("recipient", "identity"):
+        if key not in declared:
+            fail(f"Secret/pos-backup-age: no key {key!r}")
 
 # ConfigMaps that are created imperatively from files in the repository.
 # They are documented in deploy/monitoring/README.md, so a missing manifest is

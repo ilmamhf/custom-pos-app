@@ -9,11 +9,13 @@ Kubernetes manifests for a managed cluster.
 | API image | `apps/api-nestjs/Dockerfile` | NestJS API + Prisma CLI (for `migrate deploy`) |
 | Admin image | `apps/admin-react/Dockerfile` | React bundle served by unprivileged nginx |
 | Admin nginx config | `apps/admin-react/nginx.conf` | SPA fallback + `/api/` reverse proxy to `api:3000` |
+| Backup image | `deploy/backup/Dockerfile` | PostgreSQL 16 + `age`. Serves the database, the backup job, and the restore drill |
 | Compose stack | `compose.yaml` | PostgreSQL + migration job + API + Admin (`app` profile) |
 | Compose TLS overlay | `deploy/compose.tls.yaml`, `deploy/nginx/admin-tls.conf` | TLS termination in front of the Admin container |
-| Kubernetes manifests | `deploy/k8s/` | Namespace, config, secrets, migration Job, Deployments, Services, Ingress |
+| Kubernetes manifests | `deploy/k8s/` | Namespace, config, secrets, migration Job, Deployments, Services, Ingress, backup CronJobs |
 | Secret template | `deploy/k8s/11-secret.example.yaml` | Copy, fill, and keep out of version control |
 | Monitoring | `deploy/monitoring/` | Prometheus scrape configuration, alert rules, and the alert runbook |
+| Backups | `deploy/backup/` | Encrypted base backups, the WAL archive, and the restore drill |
 
 ## Prerequisites
 
@@ -139,6 +141,23 @@ at `GET /metrics` and evaluates the 16 alert rules in
 runbook actions for each alert are documented in
 [`deploy/monitoring/README.md`](monitoring/README.md).
 
+### Backups
+
+The PostgreSQL container runs the backup image with the WAL archiving
+enabled. The backup job and the restore drill live in the `backup` profile:
+
+```bash
+docker compose up -d postgres
+docker compose --profile backup run --rm backup
+docker compose --profile backup run --rm restore-drill
+```
+
+The backups are encrypted with age. The public recipient is committed
+(`deploy/backup/age-recipient.txt`); the private identity is git-ignored and
+has to be moved into the operator's secret store. The full instructions,
+including the RPO/RTO targets and what the drill verifies, are in
+[`deploy/backup/README.md`](backup/README.md).
+
 ## Kubernetes
 
 ### Apply order
@@ -154,6 +173,10 @@ kubectl apply -f deploy/k8s/41-admin-service.yaml
 kubectl apply -f deploy/k8s/40-admin-deployment.yaml
 kubectl apply -f deploy/k8s/32-api-pdb.yaml
 kubectl apply -f deploy/k8s/50-ingress.yaml
+kubectl apply -f deploy/k8s/60-prometheus-deployment.yaml
+kubectl apply -f deploy/k8s/61-prometheus-service.yaml
+kubectl apply -f deploy/k8s/70-backup-cronjob.yaml
+kubectl apply -f deploy/k8s/71-restore-drill-cronjob.yaml
 ```
 
 Or apply everything except the secret template in one go:
@@ -272,10 +295,11 @@ schema change that the old code cannot read.
 
 ## Image references
 
-The manifests use `ghcr.io/example/pos-api:latest` and
-`ghcr.io/example/pos-admin:latest` as placeholders. Replace them with the
-registry your cluster pulls from, and prefer an immutable tag (a commit SHA
-or a release tag) over `latest` for a production rollout.
+The manifests use `ghcr.io/example/pos-api:latest`,
+`ghcr.io/example/pos-admin:latest`, and `ghcr.io/example/pos-backup:latest`
+as placeholders. Replace them with the registry your cluster pulls from, and
+prefer an immutable tag (a commit SHA or a release tag) over `latest` for a
+production rollout.
 
 ## Limitations
 
@@ -284,3 +308,8 @@ or a release tag) over `latest` for a production rollout.
 - There is no HorizontalPodAutoscaler. Add one when the traffic pattern is
   known.
 - The Admin image has no image-scanning or signing step in CI yet.
+- The backup CronJobs need a PersistentVolumeClaim for the backups and one
+  for the WAL archive, and a `pos-backup-age` Secret with the real keypair.
+  The committed manifest carries placeholders.
+- Nothing prunes the WAL archive. Add a retention job for the archived
+  segments.

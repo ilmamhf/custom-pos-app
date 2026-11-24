@@ -147,7 +147,7 @@ Every task below was committed separately on `main` with all suites green.
 
 **Side effect:** the local development database had been created with `prisma db push`, so its migration history was incomplete (one migration recorded as failed). The schema matched `schema.prisma` with zero drift, so the history was repaired with `prisma migrate resolve` only; no data was touched.
 
-### P3.2 — M-07: structured logs, Prometheus metrics, tracing, and alerts (`_pending_`)
+### P3.2 — M-07: structured logs, Prometheus metrics, tracing, and alerts (`a5aef5b`)
 
 **Structured logs**
 

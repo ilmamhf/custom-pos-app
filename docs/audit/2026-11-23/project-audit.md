@@ -108,7 +108,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | # | Task | Findings addressed | Commit |
 |---|------|-------------------|--------|
 | P3.1 | Container images, Compose + Kubernetes manifests, probes, TLS, secret injection | M-07 | `f37dce0` |
-| P3.2 | Structured JSON logs, Prometheus metrics, W3C tracing, alert rules + runbook | M-07 | _pending_ |
+| P3.2 | Structured JSON logs, Prometheus metrics, W3C tracing, alert rules + runbook | M-07 | `a5aef5b` |
 
 ### Tasks deferred
 

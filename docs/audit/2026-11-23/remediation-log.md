@@ -192,7 +192,7 @@ Every task below was committed separately on `main` with all suites green.
 - Every response carries `x-request-id` and a `traceparent`. An inbound `traceparent` is continued with a new span id; a malformed one is replaced.
 - The API log lines are JSON objects, one per line.
 
-### P3.3 — M-07/R-07: encrypted backups, WAL archive, and restore drill (`_pending_`)
+### P3.3 — M-07/R-07: encrypted backups, WAL archive, and restore drill (`126a93d`)
 
 **The image**
 

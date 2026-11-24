@@ -35,10 +35,9 @@ export class SalesService {
     if (query.status) {
       where.status = query.status;
     }
-    if (query.from || query.to) {
-      where.createdAt = {};
-      if (query.from) where.createdAt.gte = new Date(query.from);
-      if (query.to) where.createdAt.lte = new Date(query.to);
+    const dateBounds = this.resolveDateBounds(query);
+    if (dateBounds) {
+      where.createdAt = dateBounds;
     }
 
     const [total, items] = await Promise.all([
@@ -89,6 +88,46 @@ export class SalesService {
       totalPages: Math.ceil(total / limit),
       items: formatted,
     };
+  }
+
+  /**
+   * Turns the `from`/`to` query parameters into a `createdAt` range.
+   *
+   * Both bounds are inclusive. A malformed bound is a client error, not a
+   * server error: the operator gets a 400 with a readable message instead of
+   * a 500 from Prisma, and a reversed range is refused rather than silently
+   * returning an empty page that looks like "no sales".
+   */
+  private resolveDateBounds(query: QuerySaleDto): Record<string, Date> | undefined {
+    if (!query.from && !query.to) {
+      return undefined;
+    }
+
+    const bounds: Record<string, Date> = {};
+
+    if (query.from) {
+      const from = new Date(query.from);
+      if (Number.isNaN(from.getTime())) {
+        throw new BadRequestException('The "from" date is not a valid date');
+      }
+      bounds.gte = from;
+    }
+
+    if (query.to) {
+      const to = new Date(query.to);
+      if (Number.isNaN(to.getTime())) {
+        throw new BadRequestException('The "to" date is not a valid date');
+      }
+      bounds.lte = to;
+    }
+
+    if (bounds.gte && bounds.lte && bounds.gte.getTime() > bounds.lte.getTime()) {
+      throw new BadRequestException(
+        'The "from" date must not be later than the "to" date',
+      );
+    }
+
+    return bounds;
   }
 
   async findOne(id: string, user?: RequestUser) {

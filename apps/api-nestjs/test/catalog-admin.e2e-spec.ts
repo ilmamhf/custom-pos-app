@@ -65,6 +65,9 @@ describe('Catalog, Stores & Users (E2E)', () => {
   });
 
   afterAll(async () => {
+    // The created cashier is removed again, so a test run leaves the seeded
+    // staff directory as it found it.
+    await prisma.user.deleteMany({ where: { email: testEmail } });
     await app.close();
   });
 

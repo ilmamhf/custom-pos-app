@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -67,11 +68,11 @@ export class QuerySaleDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({ example: '2026-11-21T00:00:00.000Z' })
   @IsOptional()
-  @IsString()
+  @IsDateString()
   from?: string;
 
   @ApiPropertyOptional({ example: '2026-11-21T23:59:59.999Z' })
   @IsOptional()
-  @IsString()
+  @IsDateString()
   to?: string;
 }

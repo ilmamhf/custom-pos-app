@@ -43,6 +43,8 @@ export interface User {
   email: string
   role: Role
   isActive?: boolean
+  /** Whether an authorization PIN is set. The PIN itself is never readable. */
+  hasPin?: boolean
   stores?: UserStoreMapping[]
 }
 

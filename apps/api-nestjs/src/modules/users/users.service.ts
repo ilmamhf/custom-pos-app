@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 import { hashPassword, hashPin } from '../../common/utils/hash.util';
@@ -16,6 +17,10 @@ export class UsersService {
         role: true,
         isActive: true,
         createdAt: true,
+        // The PIN is hashed, so the Admin cannot read it back. It only needs
+        // to know whether one is set: a manager without a PIN cannot
+        // authorize a refund.
+        pinHash: true,
         userStores: {
           select: {
             storeId: true,
@@ -45,6 +50,7 @@ export class UsersService {
         role: true,
         isActive: true,
         createdAt: true,
+        pinHash: true,
         userStores: {
           select: {
             storeId: true,
@@ -70,12 +76,20 @@ export class UsersService {
   /**
    * React Admin consumes `stores`; the API historically returned `userStores`.
    * Return both so neither contract breaks.
+   *
+   * The PIN hash never leaves the service. It is reduced to a boolean, because
+   * the Admin has to know whether a manager has a PIN set without being able
+   * to read it.
    */
-  private withStoresAlias<T extends { userStores: Array<{ storeId: string; store: { id: string; name: string; code: string } }> }>(
-    user: T,
-  ) {
+  private withStoresAlias<T extends {
+    pinHash: string | null;
+    userStores: Array<{ storeId: string; store: { id: string; name: string; code: string } }>;
+  }>(user: T) {
+    const { pinHash, ...rest } = user;
+
     return {
-      ...user,
+      ...rest,
+      hasPin: !!pinHash,
       stores: user.userStores.map((us) => ({
         storeId: us.storeId,
         store: { id: us.store.id, name: us.store.name, code: us.store.code },
@@ -128,7 +142,17 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto) {
-    await this.findOne(id);
+    const existing = await this.findOne(id);
+
+    if (dto.email !== undefined) {
+      const email = dto.email.toLowerCase().trim();
+      const conflict = await this.prisma.user.findUnique({ where: { email } });
+      if (conflict && conflict.id !== id) {
+        throw new ConflictException(`User with email ${dto.email} already exists`);
+      }
+    }
+
+    await this.assertOwnerRemains(existing, dto);
 
     const updateData: Record<string, any> = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -161,10 +185,62 @@ export class UsersService {
           email: true,
           role: true,
           isActive: true,
+          pinHash: true,
+          userStores: {
+            select: {
+              storeId: true,
+              store: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                },
+              },
+            },
+          },
         },
       });
 
-      return updated;
+      // The same shape as the list and the detail endpoint, so the Admin
+      // gets the branch assignment and the PIN flag it expects.
+      return this.withStoresAlias(updated);
     });
+  }
+
+  /**
+   * Refuses to leave the deployment without an owner.
+   *
+   * The staff directory is owner-only: with every owner demoted or
+   * deactivated, nobody can reach it any more, and the accounts below are
+   * locked out of their branches as well. The rule is "at least one other
+   * active owner has to remain", which leaves a hand-over between two owners
+   * possible.
+   */
+  private async assertOwnerRemains(
+    user: { id: string; role: Role; isActive: boolean },
+    dto: UpdateUserDto,
+  ): Promise<void> {
+    const keepsOwnerRole = dto.role === undefined || dto.role === Role.OWNER;
+    const keepsActive = dto.isActive === undefined || dto.isActive === true;
+
+    // Only an edit that turns an active owner into something else can leave
+    // the deployment without one.
+    if (user.role !== Role.OWNER || !user.isActive || (keepsOwnerRole && keepsActive)) {
+      return;
+    }
+
+    const otherActiveOwners = await this.prisma.user.count({
+      where: {
+        role: Role.OWNER,
+        isActive: true,
+        NOT: { id: user.id },
+      },
+    });
+
+    if (otherActiveOwners === 0) {
+      throw new BadRequestException(
+        'The last active owner cannot be demoted or deactivated',
+      );
+    }
   }
 }

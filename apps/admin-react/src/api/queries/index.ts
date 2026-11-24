@@ -219,10 +219,12 @@ export function useSales(
   to?: string,
   status?: string,
   page = 1,
-  limit = 20
+  limit = 20,
+  enabled = true
 ) {
   return useQuery({
     queryKey: queryKeys.sales.list(storeId, from, to, status, page, limit),
+    enabled,
     refetchInterval: 15000,
     queryFn: async () => {
       const params: Record<string, any> = { page, limit }

@@ -1,14 +1,16 @@
 import React, { useState } from 'react'
 import { useUsers, useUpdateUser, useStores } from '@/api/queries'
+import { User } from '@/api/types'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Button } from '@/components/ui/Button'
 import { StaffModal } from './StaffModal'
-import { UserPlus } from 'lucide-react'
+import { Pencil, UserPlus } from 'lucide-react'
 
 export const StaffManagementTab: React.FC = () => {
   const { data: users, isLoading, error } = useUsers()
   const { data: stores } = useStores()
   const [modalOpen, setModalOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<User | null>(null)
   const updateUserMutation = useUpdateUser()
 
   const handleToggleActive = async (userId: string, currentActive: boolean) => {
@@ -16,6 +18,16 @@ export const StaffManagementTab: React.FC = () => {
       id: userId,
       isActive: !currentActive,
     })
+  }
+
+  const openCreate = () => {
+    setEditingUser(null)
+    setModalOpen(true)
+  }
+
+  const openEdit = (user: User) => {
+    setEditingUser(user)
+    setModalOpen(true)
   }
 
   return (
@@ -26,11 +38,11 @@ export const StaffManagementTab: React.FC = () => {
         </p>
 
         <Button
-          onClick={() => setModalOpen(true)}
+          onClick={openCreate}
           size="sm"
           className="gap-1.5 text-xs"
         >
-          <UserPlus className="h-3.5 w-3.5" />
+          <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
           Add Staff Member
         </Button>
       </div>
@@ -91,7 +103,14 @@ export const StaffManagementTab: React.FC = () => {
                             </span>
                           ))
                         ) : (
-                          <span className="text-slate-400">All Stores</span>
+                          /*
+                            An owner with no assignment reaches every branch.
+                            Anyone else with no assignment reaches none, so the
+                            label says which of the two it is.
+                          */
+                          <span className="text-slate-400">
+                            {u.role === 'OWNER' ? 'All branches' : 'No branch access'}
+                          </span>
                         )}
                       </div>
                     </td>
@@ -107,16 +126,26 @@ export const StaffManagementTab: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-2.5 px-4 text-right">
-                      {u.role !== 'OWNER' && (
+                      <div className="inline-flex items-center gap-3">
                         <button
-                          onClick={() =>
-                            handleToggleActive(u.id, u.isActive !== false)
-                          }
-                          className="text-xs text-slate-600 hover:text-slate-900 font-medium underline"
+                          onClick={() => openEdit(u)}
+                          aria-label={`Edit ${u.name}`}
+                          className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 font-medium underline cursor-pointer"
                         >
-                          {u.isActive !== false ? 'Deactivate' : 'Activate'}
+                          <Pencil className="h-3 w-3" aria-hidden="true" />
+                          Edit
                         </button>
-                      )}
+                        {u.role !== 'OWNER' && (
+                          <button
+                            onClick={() =>
+                              handleToggleActive(u.id, u.isActive !== false)
+                            }
+                            className="text-xs text-slate-600 hover:text-slate-900 font-medium underline cursor-pointer"
+                          >
+                            {u.isActive !== false ? 'Deactivate' : 'Activate'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -131,6 +160,7 @@ export const StaffManagementTab: React.FC = () => {
         open={modalOpen}
         onOpenChange={setModalOpen}
         stores={stores || []}
+        user={editingUser}
       />
     </div>
   )

@@ -194,6 +194,64 @@ export const handlers = [
     })
   }),
 
+  // Sales
+  http.get('/api/v1/sales', ({ request }) => {
+    const url = new URL(request.url)
+    const from = url.searchParams.get('from')
+    const to = url.searchParams.get('to')
+    const status = url.searchParams.get('status')
+
+    const allSales = [
+      {
+        id: 'sale-1',
+        receiptNo: 'BKS-2026-11-20-001',
+        storeId: 'bks-1',
+        storeName: 'Cabang Bekasi',
+        cashierId: 'u3',
+        cashierName: 'Kasir Satu',
+        subtotal: 18000,
+        taxTotal: 1980,
+        discountTotal: 0,
+        grandTotal: 19980,
+        paymentMethod: 'CASH',
+        status: 'COMPLETED',
+        createdAt: '2026-11-20T09:15:00.000Z',
+        items: [],
+      },
+      {
+        id: 'sale-2',
+        receiptNo: 'BKS-2026-11-24-002',
+        storeId: 'bks-1',
+        storeName: 'Cabang Bekasi',
+        cashierId: 'u3',
+        cashierName: 'Kasir Satu',
+        subtotal: 22000,
+        taxTotal: 2420,
+        discountTotal: 0,
+        grandTotal: 24420,
+        paymentMethod: 'QRIS',
+        status: 'COMPLETED',
+        createdAt: '2026-11-24T04:30:00.000Z',
+        items: [],
+      },
+    ]
+
+    const items = allSales.filter((sale) => {
+      const created = new Date(sale.createdAt).getTime()
+      if (from && created < new Date(from).getTime()) return false
+      if (to && created > new Date(to).getTime()) return false
+      if (status && sale.status !== status) return false
+      return true
+    })
+
+    return HttpResponse.json({
+      items,
+      total: items.length,
+      page: 1,
+      limit: 15,
+    })
+  }),
+
   // Users
   http.get('/api/v1/users', () => {
     return HttpResponse.json([
@@ -203,6 +261,8 @@ export const handlers = [
         email: 'owner@toko.id',
         role: 'OWNER',
         isActive: true,
+        hasPin: true,
+        stores: [],
       },
       {
         id: 'u2',
@@ -210,8 +270,24 @@ export const handlers = [
         email: 'manager.bks@toko.id',
         role: 'MANAGER',
         isActive: true,
-        stores: [{ store: { id: 'bks-1', name: 'Cabang Bekasi' } }],
+        hasPin: true,
+        stores: [{ storeId: 'bks-1', store: { id: 'bks-1', name: 'Cabang Bekasi' } }],
       },
     ])
+  }),
+
+  http.patch('/api/v1/users/:id', async ({ request, params }) => {
+    const body: any = await request.json()
+    return HttpResponse.json({
+      id: params.id,
+      name: body.name ?? 'Sari Manager',
+      email: body.email ?? 'manager.bks@toko.id',
+      role: body.role ?? 'MANAGER',
+      isActive: body.isActive ?? true,
+      hasPin: Boolean(body.pin),
+      stores: [
+        { storeId: 'bks-1', store: { id: 'bks-1', name: 'Cabang Bekasi' } },
+      ],
+    })
   }),
 ]

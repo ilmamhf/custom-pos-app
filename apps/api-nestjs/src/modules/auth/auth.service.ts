@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { LoginDto } from './dto/login.dto';
@@ -20,10 +21,7 @@ import {
 import { comparePassword, comparePin } from '../../common/utils/hash.util';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { RequestUser } from '../../common/decorators/current-user.decorator';
-import {
-  resolveAccessSecret,
-  resolveRefreshSecret,
-} from '../../common/config/security.config';
+import { resolveAccessSecret, resolveRefreshSecret } from '../../common/config/security.config';
 
 interface StoreSummary {
   id: string;
@@ -87,8 +85,13 @@ export class AuthService {
   }
 
   async refreshToken(dto: RefreshTokenDto): Promise<RefreshResponseDto> {
+    const token = dto.refreshToken;
+    if (!token) {
+      throw new UnauthorizedException('Missing refresh token');
+    }
+
     try {
-      const payload = this.jwtService.verify<JwtPayload>(dto.refreshToken, {
+      const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: resolveRefreshSecret(this.configService),
       });
 
@@ -158,10 +161,7 @@ export class AuthService {
       where: {
         isActive: true,
         role: { in: [Role.MANAGER, Role.OWNER] },
-        OR: [
-          { role: Role.OWNER },
-          { userStores: { some: { storeId: dto.storeId } } },
-        ],
+        OR: [{ role: Role.OWNER }, { userStores: { some: { storeId: dto.storeId } } }],
       },
       select: {
         id: true,
@@ -175,11 +175,7 @@ export class AuthService {
       if (candidate.pinHash) {
         const matches = await comparePin(dto.pin, candidate.pinHash);
         if (matches) {
-          const offlineGrant = await this.issueOfflineGrant(
-            candidate.id,
-            dto.storeId,
-            'refund',
-          );
+          const offlineGrant = await this.issueOfflineGrant(candidate.id, dto.storeId, 'refund');
           return {
             authorized: true,
             managerId: candidate.id,
@@ -261,8 +257,7 @@ export class AuthService {
       },
       {
         secret: resolveAccessSecret(this.configService),
-        expiresIn: (this.configService.get<string>('OFFLINE_GRANT_TTL') ||
-          '12h') as any,
+        expiresIn: (this.configService.get<string>('OFFLINE_GRANT_TTL') || '12h') as any,
       },
     );
   }
@@ -276,14 +271,17 @@ export class AuthService {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: accessSecret,
-        expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') ||
-          '15m') as any,
+        expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') || '15m') as any,
       }),
-      this.jwtService.signAsync(payload, {
-        secret: refreshSecret,
-        expiresIn: (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ||
-          '7d') as any,
-      }),
+      // A unique jti makes every rotation produce a distinct refresh token even
+      // within the same second (iat/exp alone are deterministic).
+      this.jwtService.signAsync(
+        { ...payload, jti: randomUUID() },
+        {
+          secret: refreshSecret,
+          expiresIn: (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d') as any,
+        },
+      ),
     ]);
 
     return { accessToken, refreshToken };

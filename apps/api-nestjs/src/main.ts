@@ -14,25 +14,30 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const isProduction = process.env.NODE_ENV === 'production';
 
+  // Honour X-Forwarded-* only when the deployment says it sits behind a proxy.
+  // Trusting it unconditionally lets any client spoof the rate-limit key.
+  if (process.env.TRUST_PROXY === 'true') {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  }
+
   // CORS: an explicit allowlist in production; the permissive default is
   // development-only so a deployed API is not open to every origin.
   const corsOrigin = process.env.CORS_ORIGIN;
   if (isProduction && (!corsOrigin || corsOrigin.trim() === '*')) {
-    throw new Error(
-      'CORS_ORIGIN must list explicit origins (comma-separated) in production',
-    );
+    throw new Error('CORS_ORIGIN must list explicit origins (comma-separated) in production');
   }
 
   // An array is an exact-match allowlist in the `cors` package, so a literal
   // "*" must stay a string to act as the wildcard. Splitting it into ['*']
   // silently blocks every browser origin.
   const allowedOrigins = corsOrigin
-    ? corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean)
+    ? corsOrigin
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
     : ['*'];
   const corsOriginOption =
-    allowedOrigins.length === 1 && allowedOrigins[0] === '*'
-      ? '*'
-      : allowedOrigins;
+    allowedOrigins.length === 1 && allowedOrigins[0] === '*' ? '*' : allowedOrigins;
 
   app.enableCors({
     origin: corsOriginOption,

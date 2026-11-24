@@ -48,7 +48,7 @@ export interface User {
 
 export interface AuthLoginResponse {
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
   user: {
     id: string
     name: string
@@ -60,7 +60,7 @@ export interface AuthLoginResponse {
 
 export interface AuthRefreshResponse {
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
 }
 
 export interface VerifyPinResponse {

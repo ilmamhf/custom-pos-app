@@ -31,17 +31,17 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | --- | --- | --- |
 | Local demo / developer workflow | ✅ Ready | Setup documented; all tests pass |
 | Single-store controlled pilot | ✅ Ready | P0 defects closed; live-test issues fixed |
-| Multi-store production rollout | ⚠️ Conditional | P1 financial/sync/auth work complete; residual: token storage (M-02), dependency advisories (D-01/D-02), negative-stock Admin UI surface |
+| Multi-store production rollout | ⚠️ Conditional | P1 financial/sync/auth work and M-02 token storage complete; residual: dependency advisories (D-01/D-02), negative-stock Admin UI surface |
 | Internet-facing deployment | ❌ Not ready | Above + printer hardware (M-08/R-05), observability stack (M-07) |
 
 ---
 
-## 2. Verification baseline (2026-11-24, after P1)
+## 2. Verification baseline (2026-11-24, after P1 + M-02)
 
 | Check | Result |
 | --- | --- |
 | API unit tests | 36 passed |
-| API e2e tests | 22 passed (requires PostgreSQL on `localhost:15432`) |
+| API e2e tests | 24 passed (requires PostgreSQL on `localhost:15432`) |
 | API TypeScript/build | Passed |
 | React tests | 27 passed |
 | React typecheck | Passed |
@@ -86,6 +86,12 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | P1.6 | Auth throttling + lockout telemetry + alert webhook | R-06 | `19a222d` |
 | P1.7 | Backfilled Prisma migrations for P1.1–P1.4 schema | R-01/R-03/R-04 | `cbeb7ae` |
 
+### Tasks completed (P2 — 2026-11-24)
+
+| # | Task | Findings addressed | Commit |
+|---|------|-------------------|--------|
+| P2.1 | HttpOnly refresh cookie + CSRF double-submit (native clients unchanged) | M-02 | _pending_ |
+
 ### Tasks deferred
 
 | # | Task | Reason |
@@ -116,7 +122,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | **R-04** | Delta pull: no tombstones, cursor not durable | **Fixed** | `ProductTombstone`, `SyncCursor`, `full=true` snapshot fallback, client delete handling |
 | **R-02** | JS safe-integer boundary crossed | **Fixed** | IDR ceiling 999,999,999 enforced on every monetary DTO |
 | **R-06** | No rate limiting on auth/PIN endpoints | **Fixed** | `@nestjs/throttler` global + strict auth routes; account lockout, masked telemetry, alert webhook |
-| **M-02** | React tokens in `localStorage` | **Partial** | Move refresh to HttpOnly cookie; add CSRF |
+| **M-02** | React tokens in `localStorage` | **Fixed** | Access token in memory; refresh token in HttpOnly `SameSite=Strict` cookie; CSRF double-submit; native clients keep body tokens |
 | **M-04** | Flutter SQLite migration testing | **Partial** | Upgrade tests from v0→v1 on real devices needed |
 | **M-07** | Production deployment/observability incomplete | **Open** | Containers, probes, metrics, traces, alerts, backup drills |
 | **M-16** | Sales-date filter & staff edit workflows | **Open** | React date picker + server `from`/`to`; staff edit (not just toggle) |
@@ -205,7 +211,7 @@ React Admin
 - [ ] Product mutation: decimals, exponents, whitespace, server errors
 - [ ] Distinct error states for all query views
 - [ ] Dashboard date boundaries in non-UTC business timezone
-- [ ] Current-session revalidation (`/auth/me`) + logout revocation
+- [x] Current-session revalidation (`/auth/me`) + logout revocation — plus HttpOnly cookie refresh (M-02)
 - [ ] Refund/staff dialog reset on cancel/failure/reopen/sale change
 - [ ] Page reset on store/filter changes; server-side negative-stock totals
 - [ ] Generated/shared API types so server/client shape change fails CI

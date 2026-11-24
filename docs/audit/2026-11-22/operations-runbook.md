@@ -61,10 +61,38 @@ Test direct navigation to `/sales`, `/products`, and a hard refresh.
 | `AUTH_LOCKOUT_WINDOW_MS` | optional | Failure counting window (default `900000`) |
 | `AUTH_LOCKOUT_DURATION_MS` / `AUTH_LOCKOUT_MAX_DURATION_MS` | optional | Base and capped lockout duration with escalating backoff (defaults `900000` / `3600000`) |
 | `AUTH_ALERT_WEBHOOK_URL` | optional | Receives `AUTH_LOCKOUT_ALERT` JSON; otherwise alerts are structured error logs only |
+| `COOKIE_SECURE` | optional | Force `Secure` auth cookies outside production (default: Secure whenever `NODE_ENV=production`) |
+| `AUTH_REFRESH_COOKIE_MAX_AGE_MS` | optional | Refresh/CSRF cookie lifetime in ms (default `604800000`, 7 days) |
 
 Secrets must be injected by the platform secret store, not baked into images or
 committed `.env` files. Rotate `JWT_*` secrets on a schedule; note that rotating
 the access secret invalidates live access tokens.
+
+### Browser session tokens
+
+The React Admin app never stores the refresh token in JavaScript-accessible
+storage. It logs in with `X-Auth-Refresh-Mode: cookie`, so the API returns only
+the access token in the body and places the refresh token in an `HttpOnly`,
+`SameSite=Strict` cookie scoped to `/api/v1/auth`. A second, readable
+`pos_csrf_token` cookie carries the CSRF double-submit value that the SPA echoes
+in `X-CSRF-Token` on refresh. `POST /auth/refresh` rotates both cookies and
+returns only a new access token. `POST /auth/logout` clears the cookies and bumps
+the user's `tokenVersion`.
+
+The Flutter POS runs on a device and keeps using secure storage: it omits the
+mode header, receives the refresh token in the body, and posts it back in the
+refresh request body.
+
+Deployment notes:
+
+- Serve the SPA and API over HTTPS; `SameSite=Strict` plus `Secure` cookies
+  require it, and cross-site SPA/API hosting must allow credentials
+  (`Access-Control-Allow-Credentials`) with an explicit `CORS_ORIGIN`.
+- Set `TRUST_PROXY=true` behind a reverse proxy so the refresh cookie's `Secure`
+  and rate-limit keys reflect the real client.
+- Rotating `JWT_REFRESH_SECRET` invalidates every active browser session and
+  every native refresh token at once; plan a sign-out window.
+
 
 ### Auth lockout telemetry
 

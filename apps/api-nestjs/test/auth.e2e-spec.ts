@@ -159,6 +159,83 @@ describe('Auth Flow (E2E)', () => {
     }
   });
 
+  it('POST /api/v1/auth/login - cookie mode sets HttpOnly refresh + readable CSRF cookies', async () => {
+    const agent = request.agent(app.getHttpServer());
+    const res = await agent
+      .post('/api/v1/auth/login')
+      .set('X-Auth-Refresh-Mode', 'cookie')
+      .send({ email: 'owner@toko.id', password: 'password123' })
+      .expect(200);
+
+    // The browser flow must never receive the refresh token in the body.
+    expect(res.body).toHaveProperty('accessToken');
+    expect(res.body).not.toHaveProperty('refreshToken');
+
+    const setCookie = res.headers['set-cookie'] as unknown as string[];
+    const refreshCookie = setCookie.find((cookie) => cookie.startsWith('pos_refresh_token='));
+    const csrfCookie = setCookie.find((cookie) => cookie.startsWith('pos_csrf_token='));
+
+    expect(refreshCookie).toBeDefined();
+    expect(refreshCookie).toMatch(/HttpOnly/i);
+    expect(refreshCookie).toMatch(/SameSite=Strict/i);
+    expect(csrfCookie).toBeDefined();
+    // The CSRF cookie must be readable by the SPA so it can echo it back.
+    expect(csrfCookie).not.toMatch(/HttpOnly/i);
+
+    // No CSRF header => rejected before the token is consumed.
+    const missing = await agent.post('/api/v1/auth/refresh').send({}).expect(403);
+    expect(missing.body.error).toBe('FORBIDDEN');
+
+    // Wrong CSRF header => rejected.
+    await agent
+      .post('/api/v1/auth/refresh')
+      .set('X-CSRF-Token', 'not-the-real-token')
+      .send({})
+      .expect(403);
+
+    // Correct double-submit rotates the cookies and returns only an access token.
+    const csrfToken = decodeURIComponent(csrfCookie!.slice('pos_csrf_token='.length).split(';')[0]);
+    const rotated = await agent
+      .post('/api/v1/auth/refresh')
+      .set('X-CSRF-Token', csrfToken)
+      .send({})
+      .expect(200);
+
+    expect(rotated.body).toHaveProperty('accessToken');
+    expect(rotated.body).not.toHaveProperty('refreshToken');
+
+    const rotatedCookies = rotated.headers['set-cookie'] as unknown as string[];
+    const rotatedRefresh = rotatedCookies.find((cookie) => cookie.startsWith('pos_refresh_token='));
+    expect(rotatedRefresh).toBeDefined();
+    const previousToken = refreshCookie!.slice('pos_refresh_token='.length).split(';')[0];
+    const nextToken = rotatedRefresh!.slice('pos_refresh_token='.length).split(';')[0];
+    expect(nextToken).not.toBe(previousToken);
+
+    // Logout clears both auth cookies.
+    const logout = await agent
+      .post('/api/v1/auth/logout')
+      .set('Authorization', `Bearer ${rotated.body.accessToken}`)
+      .expect(200);
+    const cleared = logout.headers['set-cookie'] as unknown as string[];
+    expect(cleared.some((cookie) => cookie.startsWith('pos_refresh_token=;'))).toBe(true);
+    expect(cleared.some((cookie) => cookie.startsWith('pos_csrf_token=;'))).toBe(true);
+  });
+
+  it('POST /api/v1/auth/refresh - body token (native client) still returns a refresh token', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'manager.bks@toko.id', password: 'password123' })
+      .expect(200);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: login.body.refreshToken })
+      .expect(200);
+
+    expect(res.body).toHaveProperty('accessToken');
+    expect(res.body).toHaveProperty('refreshToken');
+  });
+
   it('POST /api/v1/auth/login - rate limits repeated failures with 429', async () => {
     let throttled: request.Response | undefined;
 

@@ -24,12 +24,14 @@ Notation: `→` means "calls / delegates to".
 ### Controller `AuthController`
 - `POST /auth/login` (public) → `AuthService.login`
   - normalize email, bcrypt compare, reject inactive, resolve accessible stores (owner: all active), issue access+refresh tokens with `ver`.
+  - `X-Auth-Refresh-Mode: cookie` (React Admin): sets `pos_refresh_token` (HttpOnly, SameSite=Strict) and `pos_csrf_token`, and omits `refreshToken` from the response body.
 - `POST /auth/refresh` (public) → `AuthService.refreshToken`
-  - verify refresh secret, load user, check active + token version, issue new tokens.
+  - body `refreshToken` (native): verify refresh secret, load user, check active + token version, issue new tokens (returned in body).
+  - no body (browser): read the HttpOnly cookie, require a matching `X-CSRF-Token` header (double-submit, else 403), rotate both cookies, and return only an access token.
 - `GET /auth/me` (JWT) → `AuthService.me`
   - current user + accessible stores; used by React to revalidate.
 - `POST /auth/logout` (JWT) → `AuthService.logout`
-  - increment `User.tokenVersion` (revokes both token types).
+  - increment `User.tokenVersion` (revokes both token types) and clear the auth cookies.
 - `POST /auth/verify-pin` (JWT, O/M/C) → `AuthService.verifyPin`
   - find active managers assigned to the store or any owner, bcrypt PIN compare, returns `{authorized, managerId, managerName, offlineGrant}`.
 

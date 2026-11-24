@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { apiClient, setTokens, clearTokens, getAccessToken } from '@/api/client'
+import {
+  apiClient,
+  setTokens,
+  clearTokens,
+  getAccessToken,
+  refreshAccessToken,
+} from '@/api/client'
 import { setQuerySession } from '@/api/queries/queryKeys'
 import { User, Store, Role, AuthLoginResponse } from '@/api/types'
 
@@ -18,6 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const USER_STORAGE_KEY = 'pos_admin_user'
 const STORES_STORAGE_KEY = 'pos_admin_stores'
+const IS_TEST = import.meta.env.MODE === 'test'
 
 function notifySessionChanged() {
   window.dispatchEvent(new CustomEvent('auth:session-changed'))
@@ -40,42 +47,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     notifySessionChanged()
   }
 
+  const applySession = (nextUser: User, nextStores: Store[]) => {
+    setUser(nextUser)
+    setStores(nextStores)
+    setQuerySession(nextUser.id)
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser))
+    localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(nextStores))
+  }
+
   useEffect(() => {
     let cancelled = false
 
-    const restore = async () => {
-      const token = getAccessToken()
+    const restoreCachedSnapshot = () => {
       const storedUser = localStorage.getItem(USER_STORAGE_KEY)
-      const storedStores = localStorage.getItem(STORES_STORAGE_KEY)
+      if (!storedUser) return
+      try {
+        const parsedUser = JSON.parse(storedUser) as User
+        setUser(parsedUser)
+        setQuerySession(parsedUser.id)
+        const storedStores = localStorage.getItem(STORES_STORAGE_KEY)
+        if (storedStores) setStores(JSON.parse(storedStores) as Store[])
+      } catch {
+        clearSession()
+      }
+    }
 
-      if (!token) {
+    const restore = async () => {
+      // Unit tests seed the access token + user in localStorage and never hit
+      // a live API, so the snapshot is authoritative there.
+      if (IS_TEST) {
+        if (getAccessToken()) {
+          restoreCachedSnapshot()
+        }
         setIsLoading(false)
         return
       }
 
-      // Optimistically show the persisted snapshot while revalidating.
-      if (storedUser) {
-        try {
-          const parsedUser = JSON.parse(storedUser) as User
-          setUser(parsedUser)
-          setQuerySession(parsedUser.id)
-          if (storedStores) setStores(JSON.parse(storedStores))
-        } catch {
-          clearSession()
-          setIsLoading(false)
-          return
-        }
-      }
-
-      // In unit tests the persisted snapshot is authoritative; skip the live
-      // revalidation so tests do not depend on a running API.
-      if (import.meta.env.MODE === 'test') {
-        if (!cancelled) setIsLoading(false)
+      // Browser: exchange the HttpOnly refresh cookie for an access token. The
+      // cookie is the only durable credential, so no token is read from storage.
+      const token = await refreshAccessToken()
+      if (cancelled) return
+      if (!token) {
+        clearSession()
+        setIsLoading(false)
         return
       }
 
-      // Revalidate roles/store assignments from the server; the persisted
-      // snapshot is only a cache for the first paint.
+      // Optimistic snapshot for the first paint while /auth/me is in flight.
+      restoreCachedSnapshot()
+
       try {
         const { data } = await apiClient.get<{ user: User; stores: Store[] }>(
           '/auth/me'
@@ -87,11 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           email: data.user.email,
           role: data.user.role,
         }
-        setUser(freshUser)
-        setStores(data.stores || [])
-        setQuerySession(freshUser.id)
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(freshUser))
-        localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(data.stores || []))
+        applySession(freshUser, data.stores || [])
       } catch (err: any) {
         // 401 means the session is gone; a transport failure keeps the cached
         // snapshot so a transient outage does not sign the user out.
@@ -117,12 +133,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [])
 
   const login = async (email: string, password: string) => {
-    const { data } = await apiClient.post<AuthLoginResponse>('/auth/login', {
-      email,
-      password,
-    })
+    const { data } = await apiClient.post<AuthLoginResponse>(
+      '/auth/login',
+      { email, password },
+      // Ask the API to keep the refresh token in an HttpOnly cookie instead of
+      // returning it in the body.
+      { headers: { 'X-Auth-Refresh-Mode': 'cookie' } }
+    )
 
-    setTokens(data.accessToken, data.refreshToken)
+    setTokens(data.accessToken)
 
     const mappedUser: User = {
       id: data.user.id,
@@ -131,13 +150,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       role: data.user.role,
     }
 
-    setQuerySession(mappedUser.id)
     notifySessionChanged()
-    setUser(mappedUser)
-    setStores(data.stores || [])
-
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(mappedUser))
-    localStorage.setItem(STORES_STORAGE_KEY, JSON.stringify(data.stores || []))
+    applySession(mappedUser, data.stores || [])
   }
 
   const logout = () => {
@@ -147,7 +161,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }
 
   const role = user?.role || null
-  const isAuthenticated = !!user && !!getAccessToken()
+  const isAuthenticated = !!user
 
   return (
     <AuthContext.Provider

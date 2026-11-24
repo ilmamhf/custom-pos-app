@@ -7,10 +7,12 @@ import {
   HttpStatus,
   UseGuards,
   Req,
+  Res,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -30,6 +32,14 @@ import { CurrentUser, RequestUser } from '../../common/decorators/current-user.d
 import { Role } from '@prisma/client';
 import { AuthTelemetryService } from './security/auth-telemetry.service';
 import { buildAuthAttemptKey } from './security/auth-attempt.util';
+import {
+  clearAuthCookies,
+  generateCsrfToken,
+  readRefreshCookie,
+  setAuthCookies,
+  verifyCsrfRequest,
+  wantsCookieRefresh,
+} from './security/auth-cookie.util';
 import { getClientIp } from '../../common/utils/client-ip.util';
 import {
   LOGIN_THROTTLE,
@@ -56,7 +66,11 @@ export class AuthController {
     status: 429,
     description: 'Too many failed attempts or requests',
   })
-  async login(@Body() dto: LoginDto, @Req() request: Request): Promise<LoginResponseDto> {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<LoginResponseDto> {
     const ip = getClientIp(request);
     const attemptKey = buildAuthAttemptKey('login', ip, dto.email);
     this.telemetry.assertNotLocked(attemptKey);
@@ -64,6 +78,17 @@ export class AuthController {
     try {
       const result = await this.authService.login(dto);
       this.telemetry.registerSuccess(attemptKey);
+
+      // Browser (cookie) clients never receive the refresh token in the body;
+      // it is stored in the HttpOnly cookie and paired with a readable CSRF
+      // cookie for the double-submit check.
+      if (wantsCookieRefresh(request) && result.refreshToken) {
+        setAuthCookies(response, result.refreshToken, generateCsrfToken());
+        const body: LoginResponseDto = { ...result };
+        delete body.refreshToken;
+        return body;
+      }
+
       return result;
     } catch (error) {
       // Only credential rejections count toward brute-force lockouts; a
@@ -86,9 +111,38 @@ export class AuthController {
     summary: 'Refresh expired access token with valid refresh token',
   })
   @ApiResponse({ status: 200, type: RefreshResponseDto })
+  @ApiResponse({ status: 401, description: 'Missing or invalid refresh token' })
+  @ApiResponse({ status: 403, description: 'Missing or invalid CSRF token (cookie flow)' })
   @ApiResponse({ status: 429, description: 'Too many refresh attempts' })
-  async refreshToken(@Body() dto: RefreshTokenDto): Promise<RefreshResponseDto> {
-    return this.authService.refreshToken(dto);
+  async refreshToken(
+    @Body() dto: RefreshTokenDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<RefreshResponseDto> {
+    // Native clients (Flutter) keep the token in secure storage and send it in
+    // the body; nothing cookie-related applies to them.
+    if (dto.refreshToken) {
+      return this.authService.refreshToken({ refreshToken: dto.refreshToken });
+    }
+
+    // Browser clients authenticate the refresh with the HttpOnly cookie. The
+    // double-submit CSRF check prevents a cross-site request from consuming it.
+    const cookieToken = readRefreshCookie(request);
+    if (!cookieToken) {
+      throw new UnauthorizedException('Missing refresh token');
+    }
+
+    if (!verifyCsrfRequest(request)) {
+      throw new ForbiddenException('Missing or invalid CSRF token');
+    }
+
+    const rotated = await this.authService.refreshToken({ refreshToken: cookieToken });
+    if (!rotated.refreshToken) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    setAuthCookies(response, rotated.refreshToken, generateCsrfToken());
+
+    return { accessToken: rotated.accessToken };
   }
 
   @Get('me')
@@ -110,7 +164,11 @@ export class AuthController {
   @ApiOperation({
     summary: 'Revoke all access and refresh tokens for the current user',
   })
-  async logout(@CurrentUser() user: RequestUser): Promise<{ ok: true }> {
+  async logout(
+    @CurrentUser() user: RequestUser,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ ok: true }> {
+    clearAuthCookies(response);
     return this.authService.logout(user.id);
   }
 

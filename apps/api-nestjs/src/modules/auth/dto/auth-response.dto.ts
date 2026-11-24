@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AuthUserDto {
   @ApiProperty({ example: 'b0000000-0000-0000-0000-000000000003' })
@@ -29,8 +29,13 @@ export class LoginResponseDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1Ni...' })
   accessToken!: string;
 
-  @ApiProperty({ example: 'eyJhbGciOiJIUzI1Ni...' })
-  refreshToken!: string;
+  /**
+   * Present for native clients that keep the token in secure storage. Browser
+   * clients request cookie mode (`X-Auth-Refresh-Mode: cookie`) and receive it
+   * only through the HttpOnly `pos_refresh_token` cookie.
+   */
+  @ApiPropertyOptional({ example: 'eyJhbGciOiJIUzI1Ni...' })
+  refreshToken?: string;
 
   @ApiProperty({ type: AuthUserDto })
   user!: AuthUserDto;
@@ -43,8 +48,12 @@ export class RefreshResponseDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1Ni...' })
   accessToken!: string;
 
-  @ApiProperty({ example: 'eyJhbGciOiJIUzI1Ni...' })
-  refreshToken!: string;
+  /**
+   * Present only on the native body-token flow. Cookie (browser) refreshes
+   * rotate the HttpOnly cookie instead and omit this field.
+   */
+  @ApiPropertyOptional({ example: 'eyJhbGciOiJIUzI1Ni...' })
+  refreshToken?: string;
 }
 
 export class VerifyPinResponseDto {
@@ -59,8 +68,7 @@ export class VerifyPinResponseDto {
 
   @ApiProperty({
     required: false,
-    description:
-      'Short-lived signed grant (store/user/action/expiry bound) for offline refunds',
+    description: 'Short-lived signed grant (store/user/action/expiry bound) for offline refunds',
   })
   offlineGrant?: string;
 }

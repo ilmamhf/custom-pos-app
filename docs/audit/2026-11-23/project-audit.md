@@ -90,7 +90,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 
 | # | Task | Findings addressed | Commit |
 |---|------|-------------------|--------|
-| P2.1 | HttpOnly refresh cookie + CSRF double-submit (native clients unchanged) | M-02 | _pending_ |
+| P2.1 | HttpOnly refresh cookie + CSRF double-submit (native clients unchanged) | M-02 | `8fe6383` |
 
 ### Tasks deferred
 

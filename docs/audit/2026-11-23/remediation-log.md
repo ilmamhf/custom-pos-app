@@ -69,7 +69,7 @@ Every task below was committed separately on `main` with all suites green.
 
 ## P2 — security & token hygiene
 
-### P2.1 — M-02: HttpOnly refresh cookie + CSRF double-submit (`_pending_`)
+### P2.1 — M-02: HttpOnly refresh cookie + CSRF double-submit (`8fe6383`)
 
 - `auth-cookie.util.ts`: cookie names/options, CSRF generation, constant-time double-submit verification, refresh-cookie reader.
   - `pos_refresh_token`: `HttpOnly`, `SameSite=Strict`, `Secure` in production, path `/api/v1/auth`.

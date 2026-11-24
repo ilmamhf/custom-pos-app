@@ -10,9 +10,11 @@ import {
   IsString,
   IsUUID,
   Min,
+  Max,
   ValidateNested,
 } from 'class-validator';
 import { PaymentMethod } from '@prisma/client';
+import { IDR_CEILING_MAX_DECORATOR } from '../../../common/utils/currency-limits.util';
 
 export class SyncShiftDto {
   @ApiProperty({ example: 'd0000000-0000-0000-0000-000000000001' })
@@ -39,6 +41,7 @@ export class SyncShiftDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   openingCash!: number;
 
   @ApiPropertyOptional({ example: 1250000, nullable: true })
@@ -46,6 +49,7 @@ export class SyncShiftDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   actualCash?: number | null;
 }
 
@@ -69,6 +73,7 @@ export class SyncSaleItemDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   unitPrice!: number;
 
   @ApiProperty({ example: 2, minimum: 1 })
@@ -82,6 +87,7 @@ export class SyncSaleItemDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   discountAmount?: number;
 
   @ApiPropertyOptional({ example: 1980, description: 'Line tax hint (integer IDR)' })
@@ -89,6 +95,7 @@ export class SyncSaleItemDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   taxAmount?: number;
 
   @ApiPropertyOptional({ example: 37980, description: 'Line total hint (integer IDR)' })
@@ -96,6 +103,7 @@ export class SyncSaleItemDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   lineTotal?: number;
 }
 
@@ -108,6 +116,7 @@ export class SyncSaleTenderDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   amount!: number;
 
   @ApiPropertyOptional({ example: 40, description: 'Change given (for cash); defaults to 0' })
@@ -115,6 +124,7 @@ export class SyncSaleTenderDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   change?: number;
 
   @ApiPropertyOptional({ example: 'QRIS-REF-12345', description: 'External payment reference (QRIS/Card)' })
@@ -143,12 +153,14 @@ export class SyncSaleDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   subtotal!: number;
 
   @ApiProperty({ example: 3960 })
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   taxTotal!: number;
 
   @ApiPropertyOptional({ example: 0, default: 0 })
@@ -156,12 +168,14 @@ export class SyncSaleDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   discountTotal?: number;
 
   @ApiProperty({ example: 39960 })
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   grandTotal!: number;
 
   @ApiProperty({ enum: PaymentMethod, example: PaymentMethod.QRIS })

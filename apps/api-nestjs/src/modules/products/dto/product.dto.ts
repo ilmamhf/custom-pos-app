@@ -9,8 +9,10 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  Max,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
+import { IDR_CEILING_MAX_DECORATOR } from '../../../common/utils/currency-limits.util';
 
 export class CreateProductDto {
   @ApiProperty({ example: 'ROTI-002' })
@@ -36,6 +38,7 @@ export class CreateProductDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   basePrice!: number;
 
   @ApiPropertyOptional({ example: 11000, default: 0, description: 'Cost price (BIGINT)' })
@@ -43,6 +46,7 @@ export class CreateProductDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   costPrice?: number;
 }
 
@@ -70,6 +74,7 @@ export class UpdateProductDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   basePrice?: number;
 
   @ApiPropertyOptional({ example: 12000 })
@@ -77,6 +82,7 @@ export class UpdateProductDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   costPrice?: number;
 
   @ApiPropertyOptional({ example: true })
@@ -91,6 +97,7 @@ export class SetPriceOverrideDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   priceOverride!: number | null;
 }
 

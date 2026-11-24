@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min, Max, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaymentMethod, PaymentTransactionType, PaymentTransactionStatus } from '@prisma/client';
+import { IDR_CEILING_MAX_DECORATOR } from '../../../common/utils/currency-limits.util';
 
 export class CreatePaymentTransactionDto {
   @ApiProperty({ example: 'a0000000-0000-0000-0000-000000000001' })
@@ -31,6 +32,7 @@ export class CreatePaymentTransactionDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   amount!: number;
 
   @ApiPropertyOptional({ example: 'IDR' })
@@ -58,6 +60,7 @@ export class CapturePaymentDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   amount!: number;
 
   @ApiPropertyOptional({ example: 'CAP-20261123-001', description: 'Capture reference' })
@@ -78,6 +81,7 @@ export class RefundPaymentDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(IDR_CEILING_MAX_DECORATOR)
   amount!: number;
 
   @ApiPropertyOptional({ example: 'Customer requested refund', description: 'Refund reason' })

@@ -86,4 +86,14 @@ class PatrolApi {
     if (items.isEmpty) return false;
     return items.first['closedAt'] != null;
   }
+
+  Future<bool> latestSaleSynced(String saleId) async {
+    final res = await _dio.get(
+      '/sales',
+      queryParameters: {'storeId': storeId, 'limit': 10},
+      options: _auth(),
+    );
+    final items = (res.data['items'] as List).cast<Map<String, dynamic>>();
+    return items.any((s) => s['id'] == saleId);
+  }
 }

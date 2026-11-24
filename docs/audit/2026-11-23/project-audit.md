@@ -93,8 +93,8 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 |---|------|-------------------|--------|
 | P2.1 | HttpOnly refresh cookie + CSRF double-submit (native clients unchanged) | M-02 | `8fe6383` |
 | P2.2 | Prisma 7 + bcrypt 6 upgrade; API advisories cleared | D-01 | `8bd1631` |
-| P2.3 | Zod 4 + React Router 7 upgrade; React advisories cleared | D-02 | _pending_ |
-| P2.4 | Dependency audit becomes a blocking CI gate | D-01/D-02 | _pending_ |
+| P2.3 | Zod 4 + React Router 7 upgrade; React advisories cleared | D-02 | `097036b` |
+| P2.4 | Dependency audit becomes a blocking CI gate | D-01/D-02 | `097036b` |
 
 ### Tasks deferred
 

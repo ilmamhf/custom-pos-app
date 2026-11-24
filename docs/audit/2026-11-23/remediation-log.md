@@ -83,7 +83,7 @@ Every task below was committed separately on `main` with all suites green.
 - React Admin: access token held in memory only; refresh is cookie-based with `withCredentials`; the `X-CSRF-Token` header is read from the CSRF cookie on every request; login sends `X-Auth-Refresh-Mode: cookie`; bootstrap calls `/auth/refresh` then `/auth/me`; `isAuthenticated` derives from the loaded user. Test mode still seeds `pos_access_token` in localStorage so the existing suite runs without a live API.
 - Flutter POS unchanged: it sends `refreshToken` in the body, receives a rotated token in the response, and keeps the token in secure storage.
 
-### P2.2 — D-01: Prisma 7 + bcrypt 6 (`_pending_`)
+### P2.2 — D-01: Prisma 7 + bcrypt 6 (`8bd1631`)
 
 - `prisma` / `@prisma/client` 6.19.3 → 7.10.1. Prisma 7 is Rust-free and connects through a driver adapter, so `@prisma/adapter-pg` + `pg` were added.
 - `prisma.config.ts` (new, project root of the API app) holds the schema path, migration path, seed command, and the `DATABASE_URL`/`SHADOW_DATABASE_URL` used by the CLI; `url` was removed from `schema.prisma` because Prisma 7 rejects it there.
@@ -95,7 +95,7 @@ Every task below was committed separately on `main` with all suites green.
 - `prisma generate` is now an explicit build step (Prisma 7 no longer generates on install/migrate).
 - Verification: `npm audit --omit=dev` → **0 advisories**; fresh database + `prisma migrate deploy` + `migrate diff --from-config-datasource --to-schema … --exit-code` → no difference; 36 API unit and 24 API e2e tests pass on the new client.
 
-### P2.3 — D-02: Zod 4 + React Router 7 (`_pending_`)
+### P2.3 — D-02: Zod 4 + React Router 7 (`097036b`)
 
 - `zod` 3.24 → 4.6.7 (GHSA-mrhx-c7xc-m3w5), `react-router-dom` 6.28 → 7.18.6 (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg).
 - `@hookform/resolvers` 3.10 → 7.0.8 and `react-hook-form` 7.54 → 7.92: the v3 resolver reads the Zod 3 error shape (`error.errors`), while the v7 resolver uses the standard-schema interface and supports Zod 4.
@@ -104,7 +104,7 @@ Every task below was committed separately on `main` with all suites green.
 - React Router 7 keeps the v6 component APIs used here (`BrowserRouter`, `Routes`, `Route`, `Navigate`, `Outlet`, `NavLink`, `useNavigate`, `useLocation`, `MemoryRouter`); the v7 future flags are now the default behaviour, so the `v7_startTransition` / `v7_relativeSplatPath` console warnings are gone.
 - Verification: `npm audit --omit=dev` → **0 advisories**; typecheck, 27 React tests, and the production build pass.
 
-### P2.4 — dependency audit becomes a blocking gate (`_pending_`)
+### P2.4 — dependency audit becomes a blocking gate (`097036b`)
 
 - `.github/workflows/ci.yml`: the `dependency-audit` job dropped `continue-on-error: true` and the `|| echo "::warning::…"` fallbacks; it now runs `npm audit --omit=dev` for the API and the React app and fails the pipeline on any advisory.
 - No workflow in `.github/workflows` uses `continue-on-error` any more.

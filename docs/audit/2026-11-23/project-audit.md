@@ -31,7 +31,7 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | --- | --- | --- |
 | Local demo / developer workflow | ✅ Ready | Setup documented; all tests pass |
 | Single-store controlled pilot | ✅ Ready | P0 defects closed; live-test issues fixed |
-| Multi-store production rollout | ⚠️ Conditional | P1 financial/sync/auth work and M-02 token storage complete; residual: dependency advisories (D-01/D-02), negative-stock Admin UI surface |
+| Multi-store production rollout | ⚠️ Conditional | P1 financial/sync/auth work, M-02 token storage, and the D-01/D-02 dependency upgrades are complete; residual: negative-stock Admin UI surface |
 | Internet-facing deployment | ❌ Not ready | Above + printer hardware (M-08/R-05), observability stack (M-07) |
 
 ---
@@ -51,7 +51,8 @@ The repository has completed **P0 remediation** for the 2026-11-22 audit. All 10
 | Flutter web build | Passed |
 | Fresh DB bootstrap | `prisma migrate deploy` + `migrate diff --exit-code` → no difference |
 | `npm audit --omit=dev` (API) | 0 advisories (was 6: 1 critical, 5 high) |
-| `npm audit --omit=dev` (React) | 3 advisories (1 high, 2 moderate) — pending D-02 |
+| `npm audit --omit=dev` (React) | 0 advisories (was 3: 1 high, 2 moderate) |
+| CI dependency audit | Blocking gate (`npm audit --omit=dev`, no `continue-on-error`) |
 
 Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 
@@ -91,14 +92,16 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | # | Task | Findings addressed | Commit |
 |---|------|-------------------|--------|
 | P2.1 | HttpOnly refresh cookie + CSRF double-submit (native clients unchanged) | M-02 | `8fe6383` |
-| P2.2 | Prisma 7 + bcrypt 6 upgrade; API advisories cleared | D-01 | _pending_ |
+| P2.2 | Prisma 7 + bcrypt 6 upgrade; API advisories cleared | D-01 | `8bd1631` |
+| P2.3 | Zod 4 + React Router 7 upgrade; React advisories cleared | D-02 | _pending_ |
+| P2.4 | Dependency audit becomes a blocking CI gate | D-01/D-02 | _pending_ |
 
 ### Tasks deferred
 
 | # | Task | Reason |
 |---|------|--------|
 | 11 | Printer adapter + operational artifacts | Hardware skipped per request; ops runbook written |
-| 12 | Dependency advisories | Major upgrades (Prisma 7, Zod 4, React Router 7) require tested migration |
+| 12 | Dependency advisories | ✅ Done in P2.2/P2.3 — Prisma 7, Zod 4, React Router 7 with 0 advisories |
 
 ### Live-test fixes (post-remediation)
 
@@ -128,7 +131,7 @@ Baseline recorded before P1 (2026-11-23): API 26 unit / 19 e2e, Flutter 157.
 | **M-07** | Production deployment/observability incomplete | **Open** | Containers, probes, metrics, traces, alerts, backup drills |
 | **M-16** | Sales-date filter & staff edit workflows | **Open** | React date picker + server `from`/`to`; staff edit (not just toggle) |
 | **D-01** | API dependency advisories (6) | **Fixed** | Prisma 7.10.1 (driver adapter + `prisma.config.ts`), bcrypt 6 (drops node-pre-gyp/tar), `effect` override; `npm audit --omit=dev` → 0 advisories |
-| **D-02** | React dependency advisories (3) | **Deferred** | Same as above |
+| **D-02** | React dependency advisories (3) | **Fixed** | Zod 4.6.7 + `@hookform/resolvers` 7 + react-hook-form 7.92, React Router 7.18.6; `npm audit --omit=dev` → 0 advisories |
 
 ### Low — usability
 
@@ -220,7 +223,7 @@ React Admin
 ### Operational
 - [x] Fresh database bootstrap from committed Prisma migrations — verified 2026-11-24
 - [ ] CI running every verified command (push to trigger)
-- [ ] Dependency audit policy with documented exceptions
+- [x] Dependency audit policy with documented exceptions — blocking `npm audit --omit=dev` gate, 0 advisories
 - [ ] Backup restore + multi-client sync under intermittent connectivity
 - [ ] DR drill with RPO/RTO measurement
 

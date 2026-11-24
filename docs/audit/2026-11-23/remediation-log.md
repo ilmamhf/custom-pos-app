@@ -95,6 +95,20 @@ Every task below was committed separately on `main` with all suites green.
 - `prisma generate` is now an explicit build step (Prisma 7 no longer generates on install/migrate).
 - Verification: `npm audit --omit=dev` → **0 advisories**; fresh database + `prisma migrate deploy` + `migrate diff --from-config-datasource --to-schema … --exit-code` → no difference; 36 API unit and 24 API e2e tests pass on the new client.
 
+### P2.3 — D-02: Zod 4 + React Router 7 (`_pending_`)
+
+- `zod` 3.24 → 4.6.7 (GHSA-mrhx-c7xc-m3w5), `react-router-dom` 6.28 → 7.18.6 (GHSA-wrjc-x8rr-h8h6, GHSA-337j-9hxr-rhxg).
+- `@hookform/resolvers` 3.10 → 7.0.8 and `react-hook-form` 7.54 → 7.92: the v3 resolver reads the Zod 3 error shape (`error.errors`), while the v7 resolver uses the standard-schema interface and supports Zod 4.
+- Zod 4 separates input and output types. `ProductModal` now uses `z.input` for the form values and `z.output` for the submitted payload, typed through react-hook-form's third generic (`useForm<Input, unknown, Output>`), so the `isActive` schema default still yields a boolean in the API payload.
+- `LoginPage` switched from the deprecated `z.string().email()` to `z.email()`.
+- React Router 7 keeps the v6 component APIs used here (`BrowserRouter`, `Routes`, `Route`, `Navigate`, `Outlet`, `NavLink`, `useNavigate`, `useLocation`, `MemoryRouter`); the v7 future flags are now the default behaviour, so the `v7_startTransition` / `v7_relativeSplatPath` console warnings are gone.
+- Verification: `npm audit --omit=dev` → **0 advisories**; typecheck, 27 React tests, and the production build pass.
+
+### P2.4 — dependency audit becomes a blocking gate (`_pending_`)
+
+- `.github/workflows/ci.yml`: the `dependency-audit` job dropped `continue-on-error: true` and the `|| echo "::warning::…"` fallbacks; it now runs `npm audit --omit=dev` for the API and the React app and fails the pipeline on any advisory.
+- No workflow in `.github/workflows` uses `continue-on-error` any more.
+
 ## Verification
 
 | Check | Result |
@@ -117,6 +131,6 @@ Additional M-02 e2e coverage: cookie mode sets the right flags and omits the bod
 2. **Auto-transfer does not move stock.** It records candidates for an operator/Admin action.
 3. **Negative-stock Admin UI** is not built yet; the API and events exist.
 4. **Generic provider only.** Real gateway quirks (signature formats, status codes) may need adapters behind `IPaymentProvider`.
-5. **Advisories.** The API is clean (`npm audit --omit=dev` → 0); React still reports 3 advisories until the Zod 4 / React Router 7 upgrade (D-02) lands.
+5. **Advisories.** Both production dependency trees are clean (`npm audit --omit=dev` → 0 for the API and the React app) and the CI dependency audit is a blocking gate.
 6. **Refresh rotation is stateless (M-02).** A rotated cookie produces a new `jti`, but the previously issued refresh token stays valid until expiry (7 days) or `tokenVersion` bump. Enforce one-time use with a jti denylist (Redis) before treating rotation as theft detection.
 7. **Prisma 7 keeps the classic generator (D-01).** The deprecated `prisma-client-js` provider is still used so the API stays CommonJS and no import paths change. Move to the `prisma-client` generator (custom `output`, generated imports) when the API is migrated to ESM.

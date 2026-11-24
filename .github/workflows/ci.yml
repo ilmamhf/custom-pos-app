@@ -89,11 +89,10 @@ jobs:
       - run: flutter build web --dart-define=API_BASE_URL=http://localhost:3000/api/v1
 
   dependency-audit:
-    name: Dependency audit (advisory)
+    name: Dependency audit (blocking)
     runs-on: ubuntu-latest
-    # Advisory until D-01/D-02 are resolved with tested upgrades. Once clean,
-    # drop `continue-on-error` to make this a blocking gate.
-    continue-on-error: true
+    # Blocking since D-01/D-02: the API and React production dependency trees
+    # are free of advisories, so any new one must fail the pipeline.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -101,7 +100,7 @@ jobs:
           node-version: 20
       - name: API production dependencies
         working-directory: apps/api-nestjs
-        run: npm audit --omit=dev --audit-level=high || echo "::warning::API production dependencies reported advisories"
+        run: npm audit --omit=dev
       - name: React production dependencies
         working-directory: apps/admin-react
-        run: npm audit --omit=dev --audit-level=high || echo "::warning::React production dependencies reported advisories"
+        run: npm audit --omit=dev

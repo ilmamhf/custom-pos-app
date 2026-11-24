@@ -346,6 +346,7 @@ closed-shift synchronization, per-record sync failure handling, and the React
 Admin user-store mapping.
 
 Remaining gaps are tracked in `docs/audit/2026-11-22/remediation-log.md`:
-Bluetooth receipt-printer hardware integration, major dependency upgrades
-(Prisma 7, Zod 4, React Router 7), a real payment-provider/settlement model, and
-rate limiting before internet exposure.
+Bluetooth receipt-printer hardware integration, a real payment-provider/settlement
+model, and the production deployment/observability work (containers, probes,
+metrics). The Prisma 7, Zod 4, and React Router 7 upgrades are done - see
+`docs/audit/2026-11-23/remediation-log.md`.

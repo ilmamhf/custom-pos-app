@@ -37,7 +37,10 @@ const productSchema = z.object({
   isActive: z.boolean().default(true),
 })
 
-type ProductFormValues = z.infer<typeof productSchema>
+type ProductFormInput = z.input<typeof productSchema>
+// `isActive` carries a schema default, so the parsed value is always boolean
+// even when the input type marks it optional.
+type ProductFormValues = z.output<typeof productSchema>
 
 interface ProductModalProps {
   open: boolean
@@ -62,7 +65,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     watch,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<ProductFormValues>({
+  } = useForm<ProductFormInput, unknown, ProductFormValues>({
     resolver: zodResolver(productSchema),
     defaultValues: {
       sku: '',

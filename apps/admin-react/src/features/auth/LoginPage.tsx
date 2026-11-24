@@ -9,11 +9,11 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
 const loginSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
+  email: z.email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 })
 
-type LoginFormValues = z.infer<typeof loginSchema>
+type LoginFormValues = z.output<typeof loginSchema>
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth()

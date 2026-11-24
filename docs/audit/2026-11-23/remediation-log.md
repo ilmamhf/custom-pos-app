@@ -109,7 +109,7 @@ Every task below was committed separately on `main` with all suites green.
 - `.github/workflows/ci.yml`: the `dependency-audit` job dropped `continue-on-error: true` and the `|| echo "::warning::…"` fallbacks; it now runs `npm audit --omit=dev` for the API and the React app and fails the pipeline on any advisory.
 - No workflow in `.github/workflows` uses `continue-on-error` any more.
 
-### P3.1 — M-07: containerization and deployment artifacts (`_pending_`)
+### P3.1 — M-07: containerization and deployment artifacts (`f37dce0`)
 
 **Images**
 

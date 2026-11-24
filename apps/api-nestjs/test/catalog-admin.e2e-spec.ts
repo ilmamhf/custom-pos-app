@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
+import { applyGlobalPrefix } from '../src/common/config/http.config';
 import { configureBigIntSerialization } from '../src/common/utils/bigint.util';
 import { PrismaService } from '../src/prisma/prisma.service';
 
@@ -24,7 +25,7 @@ describe('Catalog, Stores & Users (E2E)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1');
+    applyGlobalPrefix(app);
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalPipes(
       new ValidationPipe({

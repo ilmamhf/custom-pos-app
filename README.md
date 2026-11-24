@@ -364,6 +364,20 @@ docker compose --profile app up -d --build
 - The `app` profile needs `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, and
   `CORS_ORIGIN` in the environment (or an `--env-file`).
 
+## Run the monitoring stack
+
+The API exposes a Prometheus registry at `/metrics` and writes one JSON
+object per log line. Prometheus, the alert rules, and the runbook for every
+alert live in [`deploy/monitoring/README.md`](deploy/monitoring/README.md).
+
+```bash
+docker compose --profile app up -d
+docker compose --profile monitoring up -d
+```
+
+- Prometheus: http://localhost:9090
+- Metrics: http://localhost:3000/metrics
+
 ## Current integration boundaries
 
 The local setup supports login, catalog, shift, sale, refund, inventory, report,

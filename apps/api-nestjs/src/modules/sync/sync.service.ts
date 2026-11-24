@@ -9,6 +9,7 @@ import {
 import { PaymentMethod, SaleStatus, StockLedgerReason } from '@prisma/client';
 import { calculateTaxBps } from '../../common/utils/currency.util';
 import { expectedCashForSales } from '../../common/utils/shift-cash.util';
+import { MetricsService } from '../../common/metrics/metrics.service';
 import { AuthService } from '../auth/auth.service';
 import { SalesService } from '../sales/sales.service';
 
@@ -24,6 +25,7 @@ export class SyncService {
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
     private readonly salesService: SalesService,
+    private readonly metrics: MetricsService,
   ) {}
 
   async pull(query: SyncPullQueryDto) {
@@ -475,6 +477,16 @@ export class SyncService {
         this.logger.error(`Failed to close shift ${shiftId}: ${err.message}`);
         failed.push({ id: shiftId, entity: 'shift', error: err.message });
       }
+    }
+
+    // The outcome per entity type is what an operator watches: a rising
+    // failure count means a store cannot sync and its sales are stuck
+    // locally.
+    this.metrics.recordSyncOutcome('shift', 'success', syncedShiftIds.length);
+    this.metrics.recordSyncOutcome('sale', 'success', syncedSaleIds.length);
+    this.metrics.recordSyncOutcome('refund', 'success', syncedRefundIds.length);
+    for (const failure of failed) {
+      this.metrics.recordSyncOutcome(failure.entity, 'failure');
     }
 
     return {

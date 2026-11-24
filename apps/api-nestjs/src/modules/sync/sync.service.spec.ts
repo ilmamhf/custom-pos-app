@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PaymentMethod, StockLedgerReason } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import { SalesService } from '../sales/sales.service';
+import { MetricsService } from '../../common/metrics/metrics.service';
 
 describe('SyncService (Idempotency)', () => {
   let service: SyncService;
@@ -62,6 +63,7 @@ describe('SyncService (Idempotency)', () => {
         },
         { provide: AuthService, useValue: authService },
         { provide: SalesService, useValue: salesService },
+        { provide: MetricsService, useValue: new MetricsService() },
       ],
     }).compile();
 

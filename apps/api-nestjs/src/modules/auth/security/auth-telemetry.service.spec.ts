@@ -1,11 +1,16 @@
 import { HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { MetricsService } from '../../../common/metrics/metrics.service';
 import { AuthTelemetryService } from './auth-telemetry.service';
 
 function createConfig(values: Record<string, string | number> = {}): ConfigService {
   return {
     get: (key: string) => values[key],
   } as unknown as ConfigService;
+}
+
+function createMetrics(): MetricsService {
+  return new MetricsService();
 }
 
 describe('AuthTelemetryService', () => {
@@ -22,7 +27,10 @@ describe('AuthTelemetryService', () => {
   });
 
   it('locks an account after the threshold and reports retry-after', () => {
-    const service = new AuthTelemetryService(createConfig({ AUTH_LOCKOUT_THRESHOLD: 3 }));
+    const service = new AuthTelemetryService(
+      createConfig({ AUTH_LOCKOUT_THRESHOLD: 3 }),
+      createMetrics(),
+    );
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       service.registerFailure('login:127.0.0.1:kasir@toko.id', {
@@ -48,7 +56,10 @@ describe('AuthTelemetryService', () => {
   });
 
   it('clears the failure streak after a successful authentication', () => {
-    const service = new AuthTelemetryService(createConfig({ AUTH_LOCKOUT_THRESHOLD: 3 }));
+    const service = new AuthTelemetryService(
+      createConfig({ AUTH_LOCKOUT_THRESHOLD: 3 }),
+      createMetrics(),
+    );
     const key = 'login:127.0.0.1:kasir@toko.id';
 
     service.registerFailure(key, {
@@ -78,6 +89,7 @@ describe('AuthTelemetryService', () => {
         AUTH_LOCKOUT_THRESHOLD: 3,
         AUTH_LOCKOUT_WINDOW_MS: 1_000,
       }),
+      createMetrics(),
     );
     const key = 'login:127.0.0.1:kasir@toko.id';
 
@@ -112,6 +124,7 @@ describe('AuthTelemetryService', () => {
         AUTH_LOCKOUT_MAX_DURATION_MS: 5_000,
         AUTH_LOCKOUT_WINDOW_MS: 3_600_000,
       }),
+      createMetrics(),
     );
     const key = 'login:127.0.0.1:kasir@toko.id';
     const context = {
@@ -139,7 +152,10 @@ describe('AuthTelemetryService', () => {
   });
 
   it('masks identifiers in snapshots and counts active lockouts', () => {
-    const service = new AuthTelemetryService(createConfig({ AUTH_LOCKOUT_THRESHOLD: 2 }));
+    const service = new AuthTelemetryService(
+      createConfig({ AUTH_LOCKOUT_THRESHOLD: 2 }),
+      createMetrics(),
+    );
     const key = 'login:127.0.0.1:kasir1@toko.id';
     const context = {
       endpoint: 'login',
@@ -167,6 +183,7 @@ describe('AuthTelemetryService', () => {
         AUTH_LOCKOUT_THRESHOLD: 1,
         AUTH_ALERT_WEBHOOK_URL: 'https://alerts.example.test/auth',
       }),
+      createMetrics(),
     );
 
     service.registerFailure('login:127.0.0.1:kasir@toko.id', {
@@ -187,7 +204,10 @@ describe('AuthTelemetryService', () => {
 
   it('does not call the network when no webhook is configured', () => {
     const fetchMock = jest.spyOn(global, 'fetch');
-    const service = new AuthTelemetryService(createConfig({ AUTH_LOCKOUT_THRESHOLD: 1 }));
+    const service = new AuthTelemetryService(
+      createConfig({ AUTH_LOCKOUT_THRESHOLD: 1 }),
+      createMetrics(),
+    );
 
     service.registerFailure('verify-pin:127.0.0.1:store', {
       endpoint: 'verify-pin',

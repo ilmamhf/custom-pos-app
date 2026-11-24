@@ -147,13 +147,58 @@ Every task below was committed separately on `main` with all suites green.
 
 **Side effect:** the local development database had been created with `prisma db push`, so its migration history was incomplete (one migration recorded as failed). The schema matched `schema.prisma` with zero drift, so the history was repaired with `prisma migrate resolve` only; no data was touched.
 
+### P3.2 — M-07: structured logs, Prometheus metrics, tracing, and alerts (`_pending_`)
+
+**Structured logs**
+
+- `src/common/logging/json-logger.ts`: a dependency-free `LoggerService` that writes one JSON object per line. The NestJS default logger writes human-readable lines that no log pipeline can query reliably; this one has a stable field set (`timestamp`, `level`, `message`, `context`, `correlationId`, `traceId`, `spanId`, `stack`).
+- `LOG_LEVEL` sets the threshold (`error`, `warn`, `log`, `debug`, `verbose`, `fatal`; default `log`). `LOG_FORMAT=text` switches to a readable line format for local development; the default is `json`.
+- The logger is installed through `NestFactory.create(AppModule, { logger: new JsonLogger() })`, so the bootstrap messages are structured too.
+- The NestJS call shapes differ (`log(message, context)` but `error(message, stack, context)`); the logger unpacks both so `context` and `stack` always land in the right fields.
+
+**Request context and tracing**
+
+- `src/common/logging/request-context.ts`: an `AsyncLocalStorage` scope that carries the `correlationId`, the `traceId`, and the `spanId` of the current request. Any logger call made while handling the request picks them up without the call sites passing them around.
+- The W3C Trace Context is implemented without the OpenTelemetry SDK: `parseTraceparent` accepts a well-formed `traceparent`, and rejects a malformed header, an unsupported version, or an all-zero id instead of trusting it, so a broken client cannot poison the trace of an unrelated request.
+- `normalizeCorrelationId` only accepts a short printable token from `x-request-id`; anything else is replaced with a fresh UUID. The value is echoed back to the caller and written to the logs, so an unbounded or control-character-laden header must not be trusted.
+- `src/common/logging/request-context.middleware.ts` assigns the ids, sets the `x-request-id` and `traceparent` response headers, and records the request in the Prometheus registry. The route label is the Express route template, never the raw path, so the label cardinality stays bounded by the number of routes.
+
+**Error responses**
+
+- `src/common/filters/http-exception.filter.ts` puts the `correlationId` in every error body, so a support request can be matched to the log lines without a timestamp guess. A 5xx is logged at the error level, a 4xx at the warning level, and the library or database message is never exposed to the client.
+
+**Metrics**
+
+- `prom-client@15.1.3` (0 advisories). The registry is hand-rolled instead of using the global prom-client registry, because the API can be instantiated more than once in a test run and a global registry would carry counters over between instances.
+- `src/common/metrics/metrics.service.ts` defines `pos_http_requests_total`, `pos_http_request_duration_seconds`, `pos_sync_push_total`, `pos_negative_stock_events_total`, `pos_auth_failures_total`, `pos_auth_lockouts_total`, and `pos_payment_transactions_total`. The sync, inventory, auth, and payment services report into it.
+- `src/common/metrics/metrics.controller.ts` serves `GET /metrics`. The route sits outside the `/api/v1` prefix, because that is where Prometheus expects a scrape endpoint. `METRICS_ENABLED=false` switches it off; `METRICS_AUTH_TOKEN` requires a bearer token.
+- `src/common/metrics/readiness.monitor.ts` keeps the `pos_readiness_up` gauge in sync with the database. The API checks on a fixed interval (`READINESS_INTERVAL_MS`, default 15 s) instead of relying on an external prober, so the metric is correct in a plain Compose deployment as well as in Kubernetes.
+
+**Alerts**
+
+- `deploy/monitoring/prometheus-rules.yaml`: 16 rules in six groups — availability (instance down, all instances down, readiness failing), errors (5xx rate warning and critical, p95 latency), inventory and sync (negative stock events and escalations, sync failures, failures above successes), security (lockouts, failure spike), payments (failures, failure rate), and backups (stale backup, missing backup metric).
+- `deploy/monitoring/prometheus-scrape.yaml` and `deploy/monitoring/prometheus.yml`: the scrape jobs. The target `api:3000` resolves to the Kubernetes Service and to the Compose service alias, so the same configuration works in both environments.
+- `deploy/monitoring/prometheus-rules.test.yaml`: `promtool` unit tests that feed synthetic series into the rules and assert which alerts fire.
+- `deploy/monitoring/README.md`: how to run Prometheus, what each metric and each alert means, and what to do for every alert.
+- `compose.yaml` gained a `monitoring` profile with the Prometheus service. A profile cannot depend on a service from another profile, so Prometheus retries the scrape until the API answers; starting the two in either order works.
+- `deploy/k8s/60-prometheus-deployment.yaml` and `61-prometheus-service.yaml`: the Kubernetes Deployment and Service. The configuration is applied as a ConfigMap created from the files in `deploy/monitoring/`, so a committed copy cannot drift from the canonical files.
+
+**Verification** (Docker Desktop, local PostgreSQL)
+
+- `promtool check config` → 1 rule file, 16 rules, valid configuration.
+- `promtool test rules` → all rule unit tests pass. Writing them found a broken expression: `count(up{job="pos-api"} == 1) == 0` returns an empty vector when no instance answers, so the "all instances down" alert never fired. It now compares the instance count with the sum of the `up` values.
+- The live stack scrapes the API target successfully (`up`), the 16 rules load and evaluate, and the metric values are the expected ones (`pos_http_requests_total{route="/api/v1/health",status_code="200"}`).
+- The readiness gauge reads `1` right after the API starts, without any external probe; it drops to `0` within 30 s of PostgreSQL stopping and recovers to `1` after the database is back.
+- Every response carries `x-request-id` and a `traceparent`. An inbound `traceparent` is continued with a new span id; a malformed one is replaced.
+- The API log lines are JSON objects, one per line.
+
 ## Verification
 
 | Check | Result |
 | --- | --- |
 | `npm run build` (API) | passed |
-| `npm test` (API) | 36 passed / 7 suites |
-| `npm run test:e2e` (API, PostgreSQL `localhost:15432`) | 24 passed / 4 suites |
+| `npm test` (API) | 72 passed / 12 suites |
+| `npm run test:e2e` (API, PostgreSQL `localhost:15432`) | 33 passed / 5 suites |
 | `npm test` (React) | 27 passed |
 | `npm run build` (React) | passed |
 | `flutter test` | 158 passed |
@@ -163,6 +208,9 @@ Every task below was committed separately on `main` with all suites green.
 | Container images | `pos-api` + `pos-admin` built, migrations and seed applied from the image, liveness/readiness/SPA/proxy verified |
 | Hardened containers | read-only root filesystem, non-root user, all capabilities dropped |
 | TLS overlay | 301 redirect, HTTPS SPA, HTTPS `/api/` proxy, `Secure`/`HttpOnly`/`SameSite=Strict` cookies |
+| Prometheus configuration | `promtool check config` → 1 rule file, 16 rules, valid |
+| Prometheus rules | `promtool test rules` → all unit tests pass |
+| Prometheus (live) | the `pos-api` target scrapes successfully, the rules load and evaluate, the readiness gauge follows the database |
 
 Additional M-02 e2e coverage: cookie mode sets the right flags and omits the body refresh token; missing/wrong CSRF is rejected with 403; the correct double-submit rotates cookies; logout clears both cookies; the native body-token refresh still returns a refresh token.
 
@@ -175,6 +223,10 @@ Additional M-02 e2e coverage: cookie mode sets the right flags and omits the bod
 5. **Advisories.** Both production dependency trees are clean (`npm audit --omit=dev` → 0 for the API and the React app) and the CI dependency audit is a blocking gate.
 6. **Refresh rotation is stateless (M-02).** A rotated cookie produces a new `jti`, but the previously issued refresh token stays valid until expiry (7 days) or `tokenVersion` bump. Enforce one-time use with a jti denylist (Redis) before treating rotation as theft detection.
 7. **Prisma 7 keeps the classic generator (D-01).** The deprecated `prisma-client-js` provider is still used so the API stays CommonJS and no import paths change. Move to the `prisma-client` generator (custom `output`, generated imports) when the API is migrated to ESM.
-8. **M-07 is only half done.** The deployment side (images, Compose, Kubernetes, probes, TLS, secret injection) is complete. Metrics, traces, alerting, and the backup/restore drill are still open, so the stack is not yet observable in production.
+8. **M-07 is only half done.** The deployment side (images, Compose, Kubernetes, probes, TLS, secret injection) and the observability side (JSON logs, Prometheus metrics, W3C tracing, 16 alert rules with a runbook) are complete. The encrypted PostgreSQL backup and the restore drill are still open, so the data-loss side of the readiness story is not there yet.
 9. **The Kubernetes manifests are templates.** The image references (`ghcr.io/example/…`), the host name (`admin.example.com`), the Ingress class, the TLS secret, and the database URL must be replaced for a real cluster, and the Kubernetes manifests were validated by inspection and by an equivalent local Compose run, not by an actual cluster.
 10. **The auth lockout state is still process-local.** The Kubernetes Deployment scales the API to two replicas, so the lockout counters are not shared between them. Move that state to Redis before scaling beyond a single replica.
+11. **The alerts are not wired to a notification channel.** The rules load and evaluate, and every rule carries a `runbook_url` annotation, but pointing Alertmanager at them (and choosing the routing for the `severity` label) is left to the operator. There is no Grafana dashboard in the repository either.
+12. **The tracing is W3C context propagation without a collector.** The API continues an inbound `traceparent` and answers with its own, so the edge and the API share a trace id, but no OpenTelemetry SDK, span exporter, or trace backend is wired up. Add the SDK when a collector exists to receive the spans.
+13. **The backup rules wait for the backup job.** `PosBackupStale` and `PosBackupMetricMissing` expect `pos_backup_last_success_timestamp_seconds`, which the backup job has to publish through a node_exporter textfile collector or a Pushgateway. Until roadmap item 11 exists, the metric is absent and the missing-metric rule stays pending.
+14. **The metrics endpoint is open by default.** That is correct when the API sits on a private network. `METRICS_AUTH_TOKEN` and `METRICS_ENABLED=false` exist for the other cases, but the default is not locked down.

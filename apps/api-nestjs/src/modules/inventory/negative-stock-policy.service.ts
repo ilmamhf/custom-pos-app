@@ -14,6 +14,7 @@ import {
   QueryNegativeStockEventsDto,
 } from './dto/inventory.dto';
 import { RequestUser } from '../../common/decorators/current-user.decorator';
+import { MetricsService } from '../../common/metrics/metrics.service';
 import {
   resolveStoreScope,
   storeScopeWhere,
@@ -23,7 +24,10 @@ import {
 export class NegativeStockPolicyService {
   private readonly logger = new Logger(NegativeStockPolicyService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly metrics: MetricsService,
+  ) {}
 
   // ========== Policy CRUD ==========
 
@@ -188,6 +192,7 @@ export class NegativeStockPolicyService {
       const existingPriority = this.getActionPriority(existingEvent.actionTaken);
 
       if (actionPriority > existingPriority) {
+        this.metrics.recordNegativeStockEvent(action, storeId);
         return this.prisma.negativeStockEvent.update({
           where: { id: existingEvent.id },
           data: {
@@ -206,6 +211,7 @@ export class NegativeStockPolicyService {
     }
 
     // Create new event
+    this.metrics.recordNegativeStockEvent(action, storeId);
     const event = await this.prisma.negativeStockEvent.create({
       data: {
         storeId,

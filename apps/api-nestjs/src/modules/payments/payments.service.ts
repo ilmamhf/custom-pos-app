@@ -4,6 +4,7 @@ import { PaymentProvider, PaymentTransaction, PaymentMethod, PaymentTransactionT
 import { CreatePaymentProviderDto, UpdatePaymentProviderDto } from './dto/payment-provider.dto';
 import { CreatePaymentTransactionDto, CapturePaymentDto, VoidPaymentDto, RefundPaymentDto } from './dto/payment-transaction.dto';
 import { IPaymentProvider, GenericPaymentProvider } from './providers/generic-payment.provider';
+import { MetricsService } from '../../common/metrics/metrics.service';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly genericProvider: GenericPaymentProvider,
+    private readonly metrics: MetricsService,
   ) {
     this.providers.set('generic', this.genericProvider);
   }
@@ -164,6 +166,7 @@ export class PaymentsService {
       },
     });
 
+    this.recordTransaction(transaction);
     return transaction;
   }
 
@@ -209,6 +212,7 @@ export class PaymentsService {
     }
 
     this.logger.log(`Authorization ${response.success ? 'succeeded' : 'failed'} for transaction ${transactionId}`);
+    this.recordTransaction(updated);
     return updated;
   }
 
@@ -246,6 +250,7 @@ export class PaymentsService {
     });
 
     this.logger.log(`Capture ${response.success ? 'succeeded' : 'failed'} for transaction ${transactionId}`);
+    this.recordTransaction(updated);
     return updated;
   }
 
@@ -281,6 +286,7 @@ export class PaymentsService {
     });
 
     this.logger.log(`Void ${response.success ? 'succeeded' : 'failed'} for transaction ${transactionId}`);
+    this.recordTransaction(updated);
     return updated;
   }
 
@@ -331,6 +337,7 @@ export class PaymentsService {
     });
 
     this.logger.log(`Refund ${response.success ? 'succeeded' : 'failed'} for transaction ${transactionId}`);
+    this.recordTransaction(updated);
     return updated;
   }
 
@@ -421,10 +428,16 @@ export class PaymentsService {
     });
 
     this.logger.log(`Webhook updated transaction ${transaction.id} to status ${parsed.status}`);
+    this.recordTransaction(updated);
     return updated;
   }
 
   // ========== Helper Methods ==========
+
+  /** Reports the transaction state so the payment pipeline can be alerted on. */
+  private recordTransaction(transaction: PaymentTransaction): void {
+    this.metrics.recordPaymentTransaction(transaction.type, transaction.status);
+  }
 
   private async getProviderInstance(providerId: string): Promise<IPaymentProvider> {
     const provider = await this.prisma.paymentProvider.findUnique({ where: { id: providerId } });

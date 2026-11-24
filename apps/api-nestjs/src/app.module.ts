@@ -16,6 +16,8 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { HealthController } from './health.controller';
 import { buildThrottlerOptions } from './common/throttler/throttler.config';
+import { MetricsModule } from './common/metrics/metrics.module';
+import { RequestContextMiddleware } from './common/logging/request-context.middleware';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { buildThrottlerOptions } from './common/throttler/throttler.config';
       useFactory: () => buildThrottlerOptions(),
     }),
     PrismaModule,
+    MetricsModule,
     AuthModule,
     StoresModule,
     UsersModule,
@@ -49,5 +52,7 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Required for the HttpOnly refresh cookie / CSRF double-submit flow.
     consumer.apply(cookieParser()).forRoutes('*');
+    // Correlation id, W3C trace context, and the HTTP request metrics.
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
   }
 }

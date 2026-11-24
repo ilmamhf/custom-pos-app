@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { MetricsService } from '../../../common/metrics/metrics.service';
 import { maskIdentifier } from './auth-attempt.util';
 
 export interface AuthFailureContext {
@@ -67,7 +68,10 @@ export class AuthTelemetryService {
 
   private counters = { failures: 0, lockouts: 0, blockedRequests: 0 };
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly metrics: MetricsService,
+  ) {
     this.windowMs = this.readPositiveInt('AUTH_LOCKOUT_WINDOW_MS', 15 * 60_000);
     this.threshold = this.readPositiveInt('AUTH_LOCKOUT_THRESHOLD', 5);
     this.lockoutDurationMs = this.readPositiveInt('AUTH_LOCKOUT_DURATION_MS', 15 * 60_000);
@@ -134,6 +138,7 @@ export class AuthTelemetryService {
     record.failures += 1;
     record.lastFailureAt = now;
     this.counters.failures += 1;
+    this.metrics.recordAuthFailure(context.endpoint);
 
     const shouldLock = record.failures >= this.threshold;
     if (shouldLock) {
@@ -153,6 +158,7 @@ export class AuthTelemetryService {
     const maskedIdentifier = maskIdentifier(record.identifier);
     if (shouldLock) {
       this.counters.lockouts += 1;
+      this.metrics.recordAuthLockout(context.endpoint);
       this.emitAlert({
         event: 'AUTH_LOCKOUT_ALERT',
         endpoint: record.endpoint,

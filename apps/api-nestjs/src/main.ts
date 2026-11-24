@@ -4,13 +4,17 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { configureBigIntSerialization } from './common/utils/bigint.util';
+import { applyGlobalPrefix } from './common/config/http.config';
+import { JsonLogger } from './common/logging/json-logger';
 import { Request, Response } from 'express';
 
 async function bootstrap() {
   // Ensure BigInt values cleanly serialize to JSON numbers without throwing TypeError
   configureBigIntSerialization();
 
-  const app = await NestFactory.create(AppModule);
+  // The JSON logger is installed before the app is created so the bootstrap
+  // messages are structured too.
+  const app = await NestFactory.create(AppModule, { logger: new JsonLogger() });
   const logger = new Logger('Bootstrap');
   const isProduction = process.env.NODE_ENV === 'production';
 
@@ -46,7 +50,9 @@ async function bootstrap() {
   });
 
   // Global Prefix
-  app.setGlobalPrefix('api/v1');
+  // `/metrics` stays outside the prefix because that is where Prometheus
+  // expects a scrape endpoint.
+  applyGlobalPrefix(app);
 
   // Global Filters & Pipes
   app.useGlobalFilters(new HttpExceptionFilter());

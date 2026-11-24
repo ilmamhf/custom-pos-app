@@ -1,0 +1,348 @@
+# Unit tests for the alerting rules.
+#
+# Run with:
+#   docker run --rm --entrypoint promtool \
+#     -v "$(pwd)/deploy/monitoring:/etc/prometheus:ro" \
+#     prom/prometheus:v3.5.0 \
+#     test rules /etc/prometheus/prometheus-rules.test.yaml
+#
+# The tests feed synthetic series into the rules and assert which alerts fire.
+
+rule_files:
+  - prometheus-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The readiness gauge starts at 1 and drops to 0.
+  - interval: 1m
+    input_series:
+      - series: 'pos_readiness_up{job="pos-api",instance="api:3000"}'
+        values: '1+0x10 0+0x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PosApiReadinessFailing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PosApiReadinessFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: pos-api
+              job: pos-api
+              instance: api:3000
+            exp_annotations:
+              summary: "POS API reports itself as not ready"
+              description: >-
+                The readiness check of api:3000 failed. PostgreSQL is not
+                reachable, so the API cannot serve business traffic.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  # A single unreachable instance.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="pos-api",instance="api:3000"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PosApiInstanceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: pos-api
+              job: pos-api
+              instance: api:3000
+            exp_annotations:
+              summary: "POS API instance is down"
+              description: >-
+                Prometheus cannot scrape api:3000. The API is not
+                answering on /metrics.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+      - eval_time: 5m
+        alertname: PosApiAllInstancesDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: pos-api
+            exp_annotations:
+              summary: "No POS API instance is scrapeable"
+              description: >-
+                Every API instance is down. The point of sale is offline for this
+                deployment.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  # One healthy instance next to a broken one: only the instance alert fires.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="pos-api",instance="api:3000"}'
+        values: '0+0x40'
+      - series: 'up{job="pos-api",instance="api:3001"}'
+        values: '1+0x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PosApiInstanceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: pos-api
+              job: pos-api
+              instance: api:3000
+            exp_annotations:
+              summary: "POS API instance is down"
+              description: >-
+                Prometheus cannot scrape api:3000. The API is not
+                answering on /metrics.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+      - eval_time: 5m
+        alertname: PosApiAllInstancesDown
+        exp_alerts: []
+
+  # A healthy API does not fire any availability alert.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="pos-api",instance="api:3000"}'
+        values: '1+0x40'
+      - series: 'pos_readiness_up{job="pos-api",instance="api:3000"}'
+        values: '1+0x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PosApiInstanceDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: PosApiAllInstancesDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: PosApiReadinessFailing
+        exp_alerts: []
+
+  # Half of the requests fail: both the warning and the critical alert fire.
+  - interval: 1m
+    input_series:
+      - series: 'pos_http_requests_total{job="pos-api",instance="api:3000",method="GET",route="/api/v1/sales",status_code="500"}'
+        values: '0+60x30'
+      - series: 'pos_http_requests_total{job="pos-api",instance="api:3000",method="GET",route="/api/v1/sales",status_code="200"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PosApiHighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: pos-api
+            exp_annotations:
+              summary: "More than 5% of POS API requests return 5xx"
+              description: >-
+                The 5xx share is 50% over the last five minutes. Check the error log lines with the same
+                correlation id to find the failing route.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+      - eval_time: 20m
+        alertname: PosApiCriticalErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: pos-api
+            exp_annotations:
+              summary: "More than 25% of POS API requests return 5xx"
+              description: >-
+                The 5xx share is 50%. Treat the
+                deployment as degraded and page the on-call operator.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  # A low share of failures stays below the warning threshold.
+  - interval: 1m
+    input_series:
+      - series: 'pos_http_requests_total{job="pos-api",instance="api:3000",method="GET",route="/api/v1/sales",status_code="500"}'
+        values: '0+1x30'
+      - series: 'pos_http_requests_total{job="pos-api",instance="api:3000",method="GET",route="/api/v1/sales",status_code="200"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PosApiHighErrorRate
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PosApiCriticalErrorRate
+        exp_alerts: []
+
+  # One rejected entity per minute: the warning fires, the critical one does not.
+  - interval: 1m
+    input_series:
+      - series: 'pos_sync_push_total{job="pos-api",instance="api:3000",entity="sale",outcome="failure"}'
+        values: '0+6x30'
+      - series: 'pos_sync_push_total{job="pos-api",instance="api:3000",entity="sale",outcome="success"}'
+        values: '0+60x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PosSyncFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: pos-sync
+            exp_annotations:
+              summary: "Offline sales are failing to sync"
+              description: >-
+                The sync push is rejecting 0.10 entities per
+                second. The affected stores keep their sales locally until the
+                cause is fixed.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+      - eval_time: 20m
+        alertname: PosSyncFailingContinuously
+        exp_alerts: []
+
+  # More failures than successes: the critical alert fires.
+  - interval: 1m
+    input_series:
+      - series: 'pos_sync_push_total{job="pos-api",instance="api:3000",entity="sale",outcome="failure"}'
+        values: '0+60x40'
+      - series: 'pos_sync_push_total{job="pos-api",instance="api:3000",entity="sale",outcome="success"}'
+        values: '0+6x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PosSyncFailingContinuously
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: pos-sync
+            exp_annotations:
+              summary: "More sync entities fail than succeed"
+              description: >-
+                For the last 30 minutes the sync rejection rate is above the
+                acceptance rate. The offline queue of at least one store is not
+                draining.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  # A single negative stock event raises both inventory alerts.
+  - interval: 1m
+    input_series:
+      - series: 'pos_negative_stock_events_total{job="pos-api",instance="api:3000",action="WRITE_OFF",store="store-bks"}'
+        values: '0+0x4 1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PosNegativeStockEvents
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: pos-inventory
+            exp_annotations:
+              summary: "Negative stock events were raised"
+              description: >-
+                The policy engine raised 1 negative stock
+                event(s) in the last 15 minutes. A store is selling more than it
+                has on hand, which usually means the last delivery was not
+                received.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+      - eval_time: 10m
+        alertname: PosNegativeStockEscalated
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: pos-inventory
+            exp_annotations:
+              summary: "A negative stock event escalated to approval or write-off"
+              description: >-
+                1 negative stock event(s) needed a
+                manager approval or a write-off. Resolve the stock discrepancy
+                with the store.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  # An alert-only negative stock event does not escalate.
+  - interval: 1m
+    input_series:
+      - series: 'pos_negative_stock_events_total{job="pos-api",instance="api:3000",action="ALERT_ONLY",store="store-bks"}'
+        values: '0+0x4 1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PosNegativeStockEvents
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: pos-inventory
+            exp_annotations:
+              summary: "Negative stock events were raised"
+              description: >-
+                The policy engine raised 1 negative stock
+                event(s) in the last 15 minutes. A store is selling more than it
+                has on hand, which usually means the last delivery was not
+                received.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+      - eval_time: 10m
+        alertname: PosNegativeStockEscalated
+        exp_alerts: []
+
+  # One lockout and a failure spike.
+  - interval: 1m
+    input_series:
+      - series: 'pos_auth_lockouts_total{job="pos-api",instance="api:3000",reason="login"}'
+        values: '0+0x4 1+0x20'
+      - series: 'pos_auth_failures_total{job="pos-api",instance="api:3000",reason="login"}'
+        values: '0+180x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PosAuthLockouts
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: pos-auth
+            exp_annotations:
+              summary: "An account was locked out after repeated auth failures"
+              description: >-
+                1 lockout(s) in the last 15 minutes.
+                Check whether this is a brute-force attempt or a user who cannot
+                remember their PIN.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#7-rate-limiting-and-brute-force-protection-r-06
+      - eval_time: 20m
+        alertname: PosAuthFailureSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: pos-auth
+            exp_annotations:
+              summary: "Authentication failures are spiking"
+              description: >-
+                The API records 3.00 failed authentication
+                attempts per second. Look for a credential-stuffing attempt.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#7-rate-limiting-and-brute-force-protection-r-06
+
+  # A low authentication failure rate stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'pos_auth_failures_total{job="pos-api",instance="api:3000",reason="login"}'
+        values: '0+6x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PosAuthFailureSpike
+        exp_alerts: []
+
+  # One failed payment per minute: the warning fires, the rate alert does not.
+  - interval: 1m
+    input_series:
+      - series: 'pos_payment_transactions_total{job="pos-api",instance="api:3000",type="CAPTURE",status="FAILED"}'
+        values: '0+12x30'
+      - series: 'pos_payment_transactions_total{job="pos-api",instance="api:3000",type="CAPTURE",status="CAPTURED"}'
+        values: '0+120x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PosPaymentFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: pos-payments
+            exp_annotations:
+              summary: "Payment transactions are failing"
+              description: >-
+                0.20 payment transaction(s) per second end
+                in FAILED. The cash register can still take cash, but the
+                electronic payment path is broken.
+              runbook_url: docs/audit/2026-11-22/operations-runbook.md#8-payment-and-offline-behavior
+      - eval_time: 20m
+        alertname: PosPaymentFailureRateHigh
+        exp_alerts: []
+
+  # A fresh backup timestamp stays silent.
+  - interval: 5m
+    input_series:
+      - series: 'pos_backup_last_success_timestamp_seconds{job="pos-backup"}'
+        values: '1700000000+0x20'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: PosBackupStale
+        exp_alerts: []

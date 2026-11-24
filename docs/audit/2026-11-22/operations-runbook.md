@@ -136,6 +136,11 @@ Test direct navigation to `/sales`, `/products`, and a hard refresh.
 | `AUTH_ALERT_WEBHOOK_URL` | optional | Receives `AUTH_LOCKOUT_ALERT` JSON; otherwise alerts are structured error logs only |
 | `COOKIE_SECURE` | optional | Force `Secure` auth cookies outside production (default: Secure whenever `NODE_ENV=production`) |
 | `AUTH_REFRESH_COOKIE_MAX_AGE_MS` | optional | Refresh/CSRF cookie lifetime in ms (default `604800000`, 7 days) |
+| `LOG_LEVEL` | optional | Log threshold: `error`, `warn`, `log` (default), `debug`, `verbose`, `fatal` |
+| `LOG_FORMAT` | optional | `json` (default) or `text` for a readable local format |
+| `METRICS_ENABLED` | optional | Set `false` to switch off the `/metrics` endpoint (default: enabled) |
+| `METRICS_AUTH_TOKEN` | optional | When set, a scrape needs `Authorization: Bearer <token>` |
+| `READINESS_INTERVAL_MS` | optional | How often the API checks the database for the readiness gauge (default `15000`) |
 
 Secrets must be injected by the platform secret store, not baked into images or
 committed `.env` files. Rotate `JWT_*` secrets on a schedule; note that rotating
@@ -226,17 +231,115 @@ The probe paths are global-prefix aware, so they must be requested with the
 
 ## 6. Observability
 
-- **Logs:** structured JSON from the API (the global filter logs unhandled
-  errors with a `correlationId` that is also returned to the client). Ship logs
-  to a central store with retention.
-- **Metrics:** request rate/latency/error rate, sync push outcomes by entity
-  type, inventory negative-stock count, login failures, and database
-  connections. Add a Prometheus/OpenTelemetry exporter or use the platform's
-  managed metrics.
-- **Tracing:** enable request tracing at the reverse proxy and propagate a
-  request id; correlate with the API `correlationId`.
-- **Alerts:** 5xx rate, readiness failures, backup failures, rising negative
-  stock, and repeated sync failures per store.
+Implemented. The API writes structured JSON logs, exposes a Prometheus
+registry at `GET /metrics`, and propagates a W3C trace context. The scrape
+configuration and the alert rules live in `deploy/monitoring/`.
+
+### Structured logs
+
+Every log line is one JSON object with a stable field set:
+
+```json
+{"timestamp":"2026-11-24T04:14:10.299Z","level":"log","message":"Mapped {/api/v1/auth/login, POST} route","context":"RouterExplorer"}
+```
+
+| Field | Meaning |
+|---|---|
+| `timestamp` | ISO 8601 timestamp |
+| `level` | `log`, `warn`, `error`, `fatal`, `debug`, `verbose` |
+| `message` | The log text |
+| `context` | The NestJS context that produced the line |
+| `correlationId` | The id of the request. Also returned as `x-request-id` |
+| `traceId`, `spanId` | The W3C trace context of the request |
+| `stack` | The stack trace, on error lines |
+
+- `LOG_LEVEL` sets the threshold: `error`, `warn`, `log` (default), `debug`,
+  `verbose`, `fatal`.
+- `LOG_FORMAT=text` switches to a readable line format for local
+  development. The default is `json`.
+- Error responses carry the same `correlationId` in the body, so a support
+  request can be matched to the log lines without a timestamp guess.
+- A request that arrives with an `x-request-id` header gets that id back, as
+  long as it is a short printable token. Anything else is replaced with a
+  fresh UUID, so a client cannot inject a value into the logs.
+
+### Metrics
+
+`GET /metrics` serves the Prometheus text format. The route sits outside the
+`/api/v1` prefix, because that is where Prometheus expects a scrape endpoint.
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `pos_http_requests_total` | `method`, `route`, `status_code` | Requests handled by the API. `route` is the route template, never the raw path |
+| `pos_http_request_duration_seconds` | `method`, `route` | Request duration histogram |
+| `pos_readiness_up` | – | `1` when the last database check succeeded |
+| `pos_sync_push_total` | `entity`, `outcome` | Entities processed by the sync push, split by outcome |
+| `pos_negative_stock_events_total` | `action`, `store` | Negative stock events and the action taken |
+| `pos_auth_failures_total` | `reason` | Failed authentication attempts |
+| `pos_auth_lockouts_total` | `reason` | Account lockouts |
+| `pos_payment_transactions_total` | `type`, `status` | Payment transactions by type and final status |
+
+- The endpoint is open by default, which is correct when the API sits on a
+  private network. Set `METRICS_AUTH_TOKEN` to require a bearer token, and
+  `METRICS_ENABLED=false` to switch the endpoint off entirely.
+- The readiness gauge is maintained by the API itself every 15 seconds
+  (`READINESS_INTERVAL_MS`). It does not depend on an external prober, so the
+  metric is correct in a plain Compose deployment as well as in Kubernetes.
+
+### Tracing
+
+The API implements the W3C Trace Context without the OpenTelemetry SDK:
+
+- An inbound `traceparent` continues that trace. A malformed header, an
+  unsupported version, or an all-zero id is rejected and a new trace is
+  started, so a broken client cannot poison an unrelated request.
+- The API answers with its own `traceparent`, so the edge, the API, and any
+  service it calls share one trace id.
+- The trace id and the span id appear in every log line of the request.
+
+### Alerts
+
+`deploy/monitoring/prometheus-rules.yaml` holds 16 rules in six groups:
+availability, errors and latency, inventory and sync, security, payments, and
+backups. They cover the 5xx rate, readiness failures, rising negative stock,
+sync failures, authentication lockouts, payment failures, and the age of the
+last backup.
+
+| Alert | Severity | Fires when |
+|---|---|---|
+| `PosApiInstanceDown` | critical | An API instance cannot be scraped for 2 minutes |
+| `PosApiAllInstancesDown` | critical | Every API instance is down |
+| `PosApiReadinessFailing` | critical | The database was unreachable for 2 minutes |
+| `PosApiHighErrorRate` | warning | More than 5% of the requests return 5xx for 10 minutes |
+| `PosApiCriticalErrorRate` | critical | More than 25% of the requests return 5xx for 5 minutes |
+| `PosApiHighLatency` | warning | The p95 request duration is above 2 seconds for 10 minutes |
+| `PosNegativeStockEvents` | warning | A negative stock event was raised in the last 15 minutes |
+| `PosNegativeStockEscalated` | critical | A negative stock event needed an approval or a write-off |
+| `PosSyncFailures` | warning | The sync push rejects entities for 5 minutes |
+| `PosSyncFailingContinuously` | critical | More sync entities fail than succeed for 30 minutes |
+| `PosAuthLockouts` | warning | An account was locked out in the last 15 minutes |
+| `PosAuthFailureSpike` | warning | More than one failed authentication per second for 10 minutes |
+| `PosPaymentFailures` | warning | A payment transaction ends in `FAILED` |
+| `PosPaymentFailureRateHigh` | critical | More than 10% of the payment transactions fail |
+| `PosBackupStale` | critical | The last successful backup is older than 26 hours |
+| `PosBackupMetricMissing` | warning | No backup success timestamp is published for 24 hours |
+
+Every rule carries a `runbook_url` annotation, and
+`deploy/monitoring/README.md` describes what to do for each alert.
+
+### Running Prometheus
+
+```bash
+docker compose --profile app up -d
+docker compose --profile monitoring up -d
+```
+
+Prometheus is then available on <http://localhost:9090>. In Kubernetes the
+configuration is applied as a ConfigMap created from the files in
+`deploy/monitoring/`; the exact command is in `deploy/monitoring/README.md`.
+
+The alert rules are not wired to a notification channel. Point Alertmanager
+at the `pos-api` rules and route on the `severity` label.
 
 ## 7. Rate limiting and brute-force protection (R-06)
 

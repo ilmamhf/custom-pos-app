@@ -1,0 +1,272 @@
+# Alerting rules for the POS stack.
+#
+# Every rule carries a `runbook_url` annotation that points at the matching
+# section of `docs/audit/2026-11-22/operations-runbook.md`.
+#
+# The rules only cover signals the API exports directly
+# (`pos_*` metrics). The backup rule expects
+# `pos_backup_last_success_timestamp_seconds`, which the backup job publishes
+# through a node_exporter textfile collector or a Pushgateway; see
+# `deploy/monitoring/README.md`.
+
+groups:
+  - name: pos-api-availability
+    interval: 30s
+    rules:
+      - alert: PosApiInstanceDown
+        expr: up{job="pos-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: pos-api
+        annotations:
+          summary: "POS API instance is down"
+          description: >-
+            Prometheus cannot scrape {{ $labels.instance }}. The API is not
+            answering on /metrics.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+      - alert: PosApiReadinessFailing
+        expr: pos_readiness_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: pos-api
+        annotations:
+          summary: "POS API reports itself as not ready"
+          description: >-
+            The readiness check of {{ $labels.instance }} failed. PostgreSQL is
+            not reachable, so the API cannot serve business traffic.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+      - alert: PosApiAllInstancesDown
+        # `count(...)` is the number of known instances and `sum(...)` the
+        # number that answered. Both are needed: a scrape job with no
+        # instances at all must not page the on-call operator.
+        expr: count(up{job="pos-api"}) > 0 and sum(up{job="pos-api"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: pos-api
+        annotations:
+          summary: "No POS API instance is scrapeable"
+          description: >-
+            Every API instance is down. The point of sale is offline for this
+            deployment.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  - name: pos-api-errors
+    interval: 30s
+    rules:
+      - alert: PosApiHighErrorRate
+        expr: |
+          (
+            sum(rate(pos_http_requests_total{job="pos-api",status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(pos_http_requests_total{job="pos-api"}[5m])), 0.001)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: pos-api
+        annotations:
+          summary: "More than 5% of POS API requests return 5xx"
+          description: >-
+            The 5xx share is {{ $value | humanizePercentage }} over the last
+            five minutes. Check the error log lines with the same
+            correlation id to find the failing route.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+      - alert: PosApiCriticalErrorRate
+        expr: |
+          (
+            sum(rate(pos_http_requests_total{job="pos-api",status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(pos_http_requests_total{job="pos-api"}[5m])), 0.001)
+          ) > 0.25
+        for: 5m
+        labels:
+          severity: critical
+          service: pos-api
+        annotations:
+          summary: "More than 25% of POS API requests return 5xx"
+          description: >-
+            The 5xx share is {{ $value | humanizePercentage }}. Treat the
+            deployment as degraded and page the on-call operator.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+      - alert: PosApiHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(pos_http_request_duration_seconds_bucket{job="pos-api"}[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: pos-api
+        annotations:
+          summary: "POS API p95 latency is above two seconds"
+          description: >-
+            The p95 request duration is {{ $value | humanizeDuration }}. A cash
+            register cannot wait that long.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  - name: pos-inventory-and-sync
+    interval: 60s
+    rules:
+      - alert: PosNegativeStockEvents
+        expr: sum(increase(pos_negative_stock_events_total{job="pos-api"}[15m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: pos-inventory
+        annotations:
+          summary: "Negative stock events were raised"
+          description: >-
+            The policy engine raised {{ $value | printf "%.0f" }} negative stock
+            event(s) in the last 15 minutes. A store is selling more than it
+            has on hand, which usually means the last delivery was not
+            received.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+      - alert: PosNegativeStockEscalated
+        expr: sum(increase(pos_negative_stock_events_total{job="pos-api",action=~"MANAGER_APPROVAL|WRITE_OFF"}[15m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: pos-inventory
+        annotations:
+          summary: "A negative stock event escalated to approval or write-off"
+          description: >-
+            {{ $value | printf "%.0f" }} negative stock event(s) needed a
+            manager approval or a write-off. Resolve the stock discrepancy
+            with the store.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+      - alert: PosSyncFailures
+        expr: sum(rate(pos_sync_push_total{job="pos-api",outcome="failure"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: pos-sync
+        annotations:
+          summary: "Offline sales are failing to sync"
+          description: >-
+            The sync push is rejecting {{ $value | printf "%.2f" }} entities per
+            second. The affected stores keep their sales locally until the
+            cause is fixed.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+      - alert: PosSyncFailingContinuously
+        expr: |
+          sum(rate(pos_sync_push_total{job="pos-api",outcome="failure"}[30m]))
+          >
+          sum(rate(pos_sync_push_total{job="pos-api",outcome="success"}[30m]))
+        for: 15m
+        labels:
+          severity: critical
+          service: pos-sync
+        annotations:
+          summary: "More sync entities fail than succeed"
+          description: >-
+            For the last 30 minutes the sync rejection rate is above the
+            acceptance rate. The offline queue of at least one store is not
+            draining.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#6-observability
+
+  - name: pos-security
+    interval: 60s
+    rules:
+      - alert: PosAuthLockouts
+        expr: sum(increase(pos_auth_lockouts_total{job="pos-api"}[15m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: pos-auth
+        annotations:
+          summary: "An account was locked out after repeated auth failures"
+          description: >-
+            {{ $value | printf "%.0f" }} lockout(s) in the last 15 minutes.
+            Check whether this is a brute-force attempt or a user who cannot
+            remember their PIN.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#7-rate-limiting-and-brute-force-protection-r-06
+
+      - alert: PosAuthFailureSpike
+        expr: sum(rate(pos_auth_failures_total{job="pos-api"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: pos-auth
+        annotations:
+          summary: "Authentication failures are spiking"
+          description: >-
+            The API records {{ $value | printf "%.2f" }} failed authentication
+            attempts per second. Look for a credential-stuffing attempt.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#7-rate-limiting-and-brute-force-protection-r-06
+
+  - name: pos-payments
+    interval: 60s
+    rules:
+      - alert: PosPaymentFailures
+        expr: sum(rate(pos_payment_transactions_total{job="pos-api",status="FAILED"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: pos-payments
+        annotations:
+          summary: "Payment transactions are failing"
+          description: >-
+            {{ $value | printf "%.2f" }} payment transaction(s) per second end
+            in FAILED. The cash register can still take cash, but the
+            electronic payment path is broken.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#8-payment-and-offline-behavior
+
+      - alert: PosPaymentFailureRateHigh
+        expr: |
+          (
+            sum(rate(pos_payment_transactions_total{job="pos-api",status="FAILED"}[15m]))
+            /
+            clamp_min(sum(rate(pos_payment_transactions_total{job="pos-api"}[15m])), 0.001)
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+          service: pos-payments
+        annotations:
+          summary: "More than 10% of the payment transactions fail"
+          description: >-
+            The payment failure share is {{ $value | humanizePercentage }}. Tell
+            the stores to use the cash tender until the provider is reachable.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#8-payment-and-offline-behavior
+
+  - name: pos-backup
+    interval: 5m
+    rules:
+      - alert: PosBackupStale
+        expr: time() - pos_backup_last_success_timestamp_seconds > 93600
+        for: 10m
+        labels:
+          severity: critical
+          service: pos-backup
+        annotations:
+          summary: "The last database backup is older than 26 hours"
+          description: >-
+            The newest successful backup is {{ $value | humanizeDuration }} old.
+            The RPO of 15 minutes is not met.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#5-backups-and-recovery-r-07
+
+      - alert: PosBackupMetricMissing
+        expr: absent(pos_backup_last_success_timestamp_seconds)
+        for: 24h
+        labels:
+          severity: warning
+          service: pos-backup
+        annotations:
+          summary: "No backup success timestamp is published"
+          description: >-
+            The backup job does not publish
+            pos_backup_last_success_timestamp_seconds. Either the backup job
+            is not running or the metric is not wired up, so no backup age can
+            be verified.
+          runbook_url: docs/audit/2026-11-22/operations-runbook.md#5-backups-and-recovery-r-07

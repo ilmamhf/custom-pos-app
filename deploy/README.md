@@ -13,6 +13,7 @@ Kubernetes manifests for a managed cluster.
 | Compose TLS overlay | `deploy/compose.tls.yaml`, `deploy/nginx/admin-tls.conf` | TLS termination in front of the Admin container |
 | Kubernetes manifests | `deploy/k8s/` | Namespace, config, secrets, migration Job, Deployments, Services, Ingress |
 | Secret template | `deploy/k8s/11-secret.example.yaml` | Copy, fill, and keep out of version control |
+| Monitoring | `deploy/monitoring/` | Prometheus scrape configuration, alert rules, and the alert runbook |
 
 ## Prerequisites
 
@@ -122,6 +123,22 @@ instead, keep the plain config and forward `X-Forwarded-Proto`. The nginx
 config preserves the incoming value, so the API still sees the original
 scheme.
 
+### Monitoring
+
+Prometheus lives in its own Compose profile, so a development machine does
+not have to run it:
+
+```bash
+docker compose --profile app up -d
+docker compose --profile monitoring up -d
+```
+
+Prometheus is then available on <http://localhost:9090>. It scrapes the API
+at `GET /metrics` and evaluates the 16 alert rules in
+`deploy/monitoring/prometheus-rules.yaml`. The metrics, the alerts, and the
+runbook actions for each alert are documented in
+[`deploy/monitoring/README.md`](monitoring/README.md).
+
 ## Kubernetes
 
 ### Apply order
@@ -149,6 +166,33 @@ kubectl apply -f deploy/k8s/
 outside the repository, fill it in, and apply that copy. For a real cluster,
 use an external secret manager (External Secrets Operator, Vault, AWS Secrets
 Manager) and point the Deployments at the Secret it produces.
+
+### Monitoring
+
+The Prometheus configuration is not committed as a ConfigMap, because a copy
+would drift from the canonical files in `deploy/monitoring/`. Create it from
+those files:
+
+```bash
+kubectl create configmap pos-prometheus-config -n pos \
+  --from-file=prometheus.yml=deploy/monitoring/prometheus.yml \
+  --from-file=prometheus-rules.yaml=deploy/monitoring/prometheus-rules.yaml \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -f deploy/k8s/60-prometheus-deployment.yaml
+kubectl apply -f deploy/k8s/61-prometheus-service.yaml
+```
+
+Re-run the `create configmap` command and restart the pods after every change
+to the rules:
+
+```bash
+kubectl rollout restart deployment/pos-prometheus -n pos
+```
+
+The scrape target `api:3000` resolves to the API Service in the `pos`
+namespace. The alert rules and the runbook actions for each alert are
+documented in [`deploy/monitoring/README.md`](monitoring/README.md).
 
 ### Secrets
 

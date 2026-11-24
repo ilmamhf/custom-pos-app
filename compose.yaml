@@ -102,8 +102,43 @@ services:
       start_period: 10s
       retries: 3
 
+  # Prometheus scrapes the API and evaluates the alert rules in
+  # deploy/monitoring/. It lives in its own profile so a development machine
+  # does not have to run it.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: pos-prometheus
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # The rule file has to land under `rules/`: that is the path
+      # `rule_files` in prometheus.yml points at.
+      - ./deploy/monitoring/prometheus-rules.yaml:/etc/prometheus/rules/prometheus-rules.yaml:ro
+      - pos-prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - app
+    # No `depends_on`: the API lives in the `app` profile, and a profile
+    # cannot depend on a service from another profile. Prometheus retries the
+    # scrape until the API answers, so starting the stack in either order
+    # works.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
 volumes:
   pos-db-data:
+  pos-prometheus-data:
 
 networks:
   app:

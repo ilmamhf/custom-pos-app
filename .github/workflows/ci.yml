@@ -178,6 +178,38 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
           curl -fsS http://127.0.0.1:8080/api/v1/health
+      - name: Check the Prometheus scrape endpoint
+        run: |
+          curl -fsS http://127.0.0.1:3000/metrics | grep -q 'pos_http_requests_total'
+          curl -fsS http://127.0.0.1:3000/metrics | grep -q 'pos_readiness_up 1'
+          # The scrape endpoint stays outside the versioned prefix.
+          if curl -fsS http://127.0.0.1:3000/api/v1/metrics 2>/dev/null; then
+            echo "the metrics endpoint must not be exposed under /api/v1"
+            exit 1
+          fi
       - name: Container logs
         if: always()
         run: docker logs pos-api-ci; docker logs pos-admin-ci
+
+  monitoring:
+    name: Monitoring (Prometheus config + alert rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the Prometheus configuration
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/deploy/monitoring/prometheus-rules.yaml:/etc/prometheus/rules/prometheus-rules.yaml:ro" \
+            prom/prometheus:v3.5.0 \
+            check config /etc/prometheus/prometheus.yml
+      - name: Run the alert rule unit tests
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/deploy/monitoring:/etc/prometheus:ro" \
+            prom/prometheus:v3.5.0 \
+            test rules /etc/prometheus/prometheus-rules.test.yaml
+      - name: Validate the Kubernetes manifests
+        run: |
+          pip install --quiet pyyaml
+          python .github/scripts/validate-k8s.py

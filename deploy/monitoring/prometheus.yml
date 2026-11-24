@@ -1,0 +1,51 @@
+# Standalone Prometheus configuration for the POS stack.
+#
+# Mount it into a Prometheus container and load the rules from the same
+# directory:
+#
+#   docker run --rm \
+#     -v "$(pwd)/deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+#     -v "$(pwd)/deploy/monitoring/prometheus-rules.yaml:/etc/prometheus/rules/prometheus-rules.yaml:ro" \
+#     -p 9090:9090 \
+#     prom/prometheus:v3.5.0 \
+#     --config.file=/etc/prometheus/prometheus.yml \
+#     --storage.tsdb.retention.time=15d \
+#     --web.enable-lifecycle
+#
+# The rule file path is absolute so it does not depend on the working
+# directory Prometheus is started in.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: pos
+
+rule_files:
+  - /etc/prometheus/rules/prometheus-rules.yaml
+
+scrape_configs:
+  # The API exposes its registry at `/metrics`, outside the `/api/v1` prefix.
+  # The target name matches the Kubernetes Service (`api`) and the Compose
+  # service alias, so the same configuration works in both environments.
+  - job_name: pos-api
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    static_configs:
+      - targets:
+          - api:3000
+        labels:
+          service: pos-api
+          env: production
+    # Uncomment when `METRICS_AUTH_TOKEN` is set on the API. Keep the token
+    # in a mounted secret, never in this file.
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/secrets/pos-metrics-token
+
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090

@@ -96,4 +96,35 @@ class PatrolApi {
     final items = (res.data['items'] as List).cast<Map<String, dynamic>>();
     return items.any((s) => s['id'] == saleId);
   }
+
+  /// Ensures a test product exists with the given SKU, creating it if needed.
+  Future<void> ensureTestProduct({
+    required String sku,
+    required String name,
+    required int price,
+    required int stock,
+    String? barcode,
+  }) async {
+    // Try to get existing product
+    try {
+      await product(sku);
+      return; // Product exists
+    } catch (_) {
+      // Product doesn't exist, create it
+    }
+
+    // Create the product
+    await _dio.post(
+      '/stores/$storeId/products',
+      data: {
+        'sku': sku,
+        'name': name,
+        'effectivePrice': price,
+        'stockOnHand': stock,
+        if (barcode != null) 'barcode': barcode,
+        'isActive': true,
+      },
+      options: _auth(withStore: true),
+    );
+  }
 }

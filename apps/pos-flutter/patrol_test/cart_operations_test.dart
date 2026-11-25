@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
 
 import 'support/app_helpers.dart';
+import 'support/patrol_api.dart';
 
 void main() {
   tearDown(() async {
@@ -10,6 +11,17 @@ void main() {
   });
 
   patrolTest('F11/F14/F15/F16: catalog, cart, and discounts', ($) async {
+    // Ensure test product exists in the API before launching the app.
+    final api = PatrolApi();
+    await api.signInOwner();
+    await api.ensureTestProduct(
+      sku: 'TEH-001',
+      name: 'Es Teh Manis Melati',
+      price: 5000,
+      stock: 100,
+      barcode: '8991234567892',
+    );
+
     await launchApp($);
     await reachPos($);
     // Trigger catalog sync so products are available in the fresh test DB.

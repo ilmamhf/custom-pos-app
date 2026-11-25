@@ -12,6 +12,14 @@ void main() {
   patrolTest('F19/F24/F25: cash sale completes and syncs', ($) async {
     final api = PatrolApi();
     await api.signInOwner();
+    // Ensure test product exists in the API before launching the app.
+    await api.ensureTestProduct(
+      sku: 'TEH-001',
+      name: 'Es Teh Manis Melati',
+      price: 5000,
+      stock: 100,
+      barcode: '8991234567892',
+    );
     final salesBefore = await api.salesCount();
     final stockBefore = await api.stock('TEH-001');
 

@@ -62,19 +62,21 @@ jobs:
         working-directory: e2e
         run: npm test
       - name: Upload Playwright report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: e2e/playwright-report
           retention-days: 7
+          if-no-files-found: ignore
       - name: Upload Playwright videos and traces
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-test-results
           path: e2e/test-results
           retention-days: 7
+          if-no-files-found: ignore
 
   pos-e2e:
     name: Flutter POS (legacy flutter drive)
@@ -171,12 +173,13 @@ jobs:
             -d chrome --headless --browser-name=chrome --web-port=7357 \
             --dart-define=API_BASE_URL=http://localhost:3100/api/v1
       - name: Upload API log
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: api-log
           path: apps/api-nestjs/api.log
           retention-days: 7
+          if-no-files-found: ignore
 
   pos-patrol:
     name: Flutter POS (Patrol web)
@@ -288,7 +291,7 @@ jobs:
         working-directory: apps/pos-flutter
         run: node scripts/export-patrol-videos.mjs
       - name: Upload Patrol report and videos
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: patrol-report
@@ -296,10 +299,12 @@ jobs:
             apps/pos-flutter/playwright-report
             apps/pos-flutter/patrol_videos
           retention-days: 7
+          if-no-files-found: ignore
       - name: Upload API log
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: patrol-api-log
           path: apps/api-nestjs/api.log
           retention-days: 7
+          if-no-files-found: ignore

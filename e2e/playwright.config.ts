@@ -23,7 +23,14 @@ const apiEnv = {
   DATABASE_URL: E2E_DATABASE_URL,
   JWT_ACCESS_SECRET: 'e2e-access-secret-at-least-32-characters-long',
   JWT_REFRESH_SECRET: 'e2e-refresh-secret-at-least-32-characters-long',
-  CORS_ORIGIN: '*',
+  // The app sends credentials (the HttpOnly refresh cookie), and browsers
+  // reject a wildcard Access-Control-Allow-Origin on credentialed requests.
+  // The Admin dev server runs on this exact origin, so allow it explicitly.
+  CORS_ORIGIN: ADMIN_BASE_URL,
+  // The suite signs in via the API for every test. The production default is
+  // deliberately tight, so raise the login limit for this suite only.
+  AUTH_LOGIN_THROTTLE_LIMIT: '50',
+  AUTH_LOGIN_THROTTLE_TTL_MS: '60000',
   SWAGGER_ENABLED: 'false',
 };
 
@@ -68,7 +75,11 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: `npm run dev -- --port ${ADMIN_PORT} --strictPort`,
+      // `--mode test` makes import.meta.env.MODE === 'test', which is what
+      // the client keys its test-session storage off. Plain `npm run dev`
+      // runs in development mode, where localStorage is not consulted and
+      // every seeded session is ignored.
+      command: `npm run dev -- --mode test --port ${ADMIN_PORT} --strictPort`,
       cwd: adminDir,
       url: ADMIN_BASE_URL,
       reuseExistingServer: !process.env.CI,

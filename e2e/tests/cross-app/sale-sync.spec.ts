@@ -37,6 +37,7 @@ test.describe('Cross-application consistency', () => {
     const receipt = unique('E2E-XAPP');
     const sale = await pushSale(cashierToken, bks.id, {
       shiftId: shift.id,
+      createdAt: shift.openedAt,
       productId: product.id,
       unitPrice: 5000,
       qty: 2,

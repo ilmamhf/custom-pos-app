@@ -27,6 +27,7 @@ test.describe('Sales and refunds', () => {
     const receipt = unique('E2E-REFUND');
     const sale = await pushSale(cashierToken, bks.id, {
       shiftId: shift.id,
+      createdAt: shift.openedAt,
       productId: teh.id,
       unitPrice: 8000,
       qty: 1,

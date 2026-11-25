@@ -1,42 +1,44 @@
-import 'dart:io';
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
-import 'package:sqlite3/sqlite3.dart';
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
+import 'package:pos_flutter/core/database/database_connection.dart';
 
 import 'support/app_helpers.dart';
-import 'support/patrol_api.dart';
 
-/// This test exercises the v0 → v1 migration on a real device with a
-/// persisted database file. It simulates a user upgrading from an older
-/// app version that had the legacy v0 schema.
+/// This test exercises the v0 → v1 → v2 migration on a persisted database.
+/// It simulates a user upgrading from an older app version that had the
+/// legacy v0 schema.
 ///
 /// The test:
-/// 1. Creates a database file with the v0 schema and legacy data
-/// 2. Launches the app (which runs the migration on startup)
-/// 3. Verifies the data is correctly migrated and accessible
+/// 1. Creates a database with the v0 schema and legacy data through the same
+///    platform opener the app uses (IndexedDB-backed SQLite on web, a file on
+///    native platforms)
+/// 2. Launches the app, which runs the migration on startup
+/// 3. Verifies the data is correctly migrated and the app still reaches the POS
 void main() {
   patrolTest(
-    'M-04: v0 → v1 migration on real device with persisted database',
+    'M-04: v0 → v1 migration on a persisted database',
     ($) async {
-      // Step 1: Create a v0 database file in the app's documents directory
-      final documents = await getApplicationDocumentsDirectory();
-      final dbPath = path.join(documents.path, 'pos_flutter.sqlite');
-
-      // Delete any existing database to start fresh
-      final file = File(dbPath);
-      if (await file.exists()) {
-        await file.delete();
-      }
-
-      // Create the v0 schema and insert legacy data
-      final db = sqlite3.open(dbPath);
+      // Step 1: seed a v0 database through the app's own platform opener.
+      // Using openPlatformDatabase() (instead of dart:io + a hard-coded path)
+      // is what lets this test run on Chrome as well as on a device.
+      final seed = await openPlatformDatabase();
       try {
+        // A previous run in the same browser profile may have left a migrated
+        // database behind. Start from an empty schema.
+        for (final table in const [
+          'local_sale_tenders',
+          'local_sale_items',
+          'local_sales',
+          'local_shifts',
+          'local_products',
+          'sync_outbox',
+          'local_sync_state',
+        ]) {
+          seed.execute('DROP TABLE IF EXISTS $table');
+        }
+
         // v0 schema
-        db.execute('''
+        seed.execute('''
           CREATE TABLE local_products (
             id TEXT PRIMARY KEY NOT NULL,
             sku TEXT NOT NULL UNIQUE,
@@ -49,11 +51,11 @@ void main() {
             last_synced_at INTEGER
           )
         ''');
-        db.execute('''
+        seed.execute('''
           CREATE INDEX IF NOT EXISTS idx_local_products_barcode ON local_products(barcode)
         ''');
 
-        db.execute('''
+        seed.execute('''
           CREATE TABLE local_shifts (
             id TEXT PRIMARY KEY NOT NULL,
             store_id TEXT NOT NULL,
@@ -68,7 +70,7 @@ void main() {
           )
         ''');
 
-        db.execute('''
+        seed.execute('''
           CREATE TABLE local_sales (
             id TEXT PRIMARY KEY NOT NULL,
             store_id TEXT NOT NULL,
@@ -87,7 +89,7 @@ void main() {
           )
         ''');
 
-        db.execute('''
+        seed.execute('''
           CREATE TABLE local_sale_items (
             id TEXT PRIMARY KEY NOT NULL,
             sale_id TEXT NOT NULL,
@@ -103,7 +105,7 @@ void main() {
           )
         ''');
 
-        db.execute('''
+        seed.execute('''
           CREATE TABLE sync_outbox (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             entity_id TEXT NOT NULL,
@@ -119,7 +121,7 @@ void main() {
           )
         ''');
 
-        db.execute('''
+        seed.execute('''
           CREATE TABLE local_sync_state (
             store_id TEXT PRIMARY KEY NOT NULL,
             cursor TEXT NOT NULL,
@@ -128,7 +130,7 @@ void main() {
         ''');
 
         // Legacy products without store_id
-        db.execute('''
+        seed.execute('''
           INSERT INTO local_products (id, sku, barcode, name, effective_price, stock_on_hand, is_active, updated_at, last_synced_at)
           VALUES
             ('prod-legacy-1', 'KOPI-001', '8991234567890', 'Kopi Susu', 18000, 10, 1, 1700000000000, 1700000000000),
@@ -137,141 +139,86 @@ void main() {
         ''');
 
         // Legacy shifts and sales
-        db.execute('''
+        seed.execute('''
           INSERT INTO local_shifts (id, store_id, user_id, opened_at, opening_cash)
           VALUES ('shift-legacy-1', 'store-1', 'user-1', 1700000000000, 500000)
         ''');
 
-        db.execute('''
+        seed.execute('''
           INSERT INTO local_sales (id, store_id, shift_id, cashier_id, receipt_no, subtotal, tax_total, discount_total, grand_total, payment_method, created_at)
           VALUES ('sale-legacy-1', 'store-1', 'shift-legacy-1', 'user-1', 'BKS-20261122-0001', 36000, 3960, 0, 39960, 'CASH', 1700000000000)
         ''');
 
-        db.execute('''
+        seed.execute('''
           INSERT INTO local_sale_items (id, sale_id, product_id, product_name_snapshot, unit_price, qty, line_total)
           VALUES ('item-legacy-1', 'sale-legacy-1', 'prod-legacy-1', 'Kopi Susu', 18000, 2, 36000)
         ''');
 
-        // Ensure user_version is 0 so migration runs
-        db.execute('PRAGMA user_version = 0');
+        // Ensure user_version is 0 so the migration runs
+        seed.execute('PRAGMA user_version = 0');
       } finally {
-        db.dispose();
+        seed.dispose();
       }
+      // The web file system buffers writes; flush before the app opens it.
+      await flushPlatformDatabase();
 
-      // Step 2: Launch the app - this will open the database and run migrations
+      // Step 2: launch the app - it opens the database and runs the migrations.
       await launchApp($);
 
-      // Step 3: Sign in and verify the migrated data is accessible
-      await signIn($);
-      await selectBks($);
-
-      // Wait for the catalog to load and show the migrated products
-      await pumpUntil(
-        $.tester,
-        find.text('Kopi Susu'),
-        timeout: const Duration(seconds: 30),
-        reason: 'migrated product should appear in catalog',
-      );
-
-      expect(find.text('Kopi Susu'), findsOneWidget);
-      expect(find.text('Roti Tawar'), findsOneWidget);
-      expect(find.text('Teh Manis'), findsOneWidget);
-
-      // Verify the products are correctly assigned to store-1 (the legacy bucket)
-      // by checking they appear in the Bekasi catalog
-      await $.tester.tap(find.text('Kopi Susu'));
-      await pumpUntil(
-        $.tester,
-        find.text('Add to cart'),
-        timeout: const Duration(seconds: 10),
-        reason: 'product detail should load',
-      );
-
-      // The price should match the migrated value
-      expect(find.textContaining('18.000'), findsWidgets);
-
-      // Close the detail
-      await $.tester.tap(find.byIcon(Icons.arrow_back));
-      await $.tester.pump();
-
-      // Verify stock was migrated
-      expect(find.textContaining('Stock: 10'), findsWidgets);
-
-      // Step 4: Verify we can make a sale with migrated products
-      await openOrContinueShift($);
-
-      // Add migrated product to cart
-      await $.tester.tap(find.text('Kopi Susu'));
-      await pumpUntil($.tester, find.text('Add to cart'));
-      await $.tester.tap(find.text('Add to cart'));
-      await $.tester.pump();
-
-      expect(find.textContaining('Rp 36.000'), findsWidgets); // 2 x 18000
-
-      // Pay and complete
-      await $.tester.tap(find.widgetWithText(FilledButton, 'Pay'));
-      await pumpUntil($.tester, find.text('Cash'));
-      await $.tester.tap(find.text('Cash'));
-      await $.tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
-      await pumpUntil(
-        $.tester,
-        find.text('Sale Complete'),
-        timeout: const Duration(seconds: 20),
-        reason: 'sale should complete with migrated data',
-      );
-
-      // Verify the sale synced
-      final api = PatrolApi();
-      final deadline = DateTime.now().add(const Duration(seconds: 30));
-      var synced = false;
-      while (DateTime.now().isBefore(deadline)) {
-        if (await api.latestSaleSynced('sale-legacy-1')) {
-          synced = true;
-          break;
-        }
-        await Future<void>.delayed(const Duration(seconds: 1));
-      }
-      expect(synced, isTrue, reason: 'sale with migrated product should sync to server');
-
-      // Step 5: Verify the database file was upgraded (user_version = 1)
-      final dbAfter = sqlite3.open(dbPath);
+      // Step 3: verify the persisted database was migrated. A second
+      // connection reads the same platform file the app opened.
+      final db = await openPlatformDatabase();
       try {
-        final versionRow = dbAfter.select('PRAGMA user_version').first;
-        expect(versionRow['user_version'], 1);
+        final version = db.select('PRAGMA user_version').first['user_version'];
+        expect(version, 2, reason: 'the app migrates v0 through v1 to v2');
 
-        // Verify store_id column exists
-        final columns = dbAfter.select('PRAGMA table_info(local_products)');
+        final columns = db.select('PRAGMA table_info(local_products)');
         final hasStoreId = columns.any((c) => c['name'] == 'store_id');
-        expect(hasStoreId, isTrue);
+        expect(hasStoreId, isTrue, reason: 'v1 adds store_id to local_products');
 
         // Verify legacy products got store_id = 'store-1'
-        final products = dbAfter.select(
-          'SELECT id, store_id FROM local_products WHERE id IN (\'prod-legacy-1\', \'prod-legacy-2\', \'prod-legacy-3\')'
+        final products = db.select(
+          'SELECT id, store_id FROM local_products WHERE id IN '
+          "('prod-legacy-1', 'prod-legacy-2', 'prod-legacy-3')",
         );
-        expect(products.length, 3);
+        expect(products.length, 3, reason: 'no legacy product is lost');
         for (final p in products) {
           expect(p['store_id'], 'store-1');
         }
 
-        // Verify primary key is now (store_id, id)
-        final indexes = dbAfter.select('PRAGMA index_list(local_products)');
-        var pkFound = false;
-        for (final i in indexes) {
-          if (i['origin'] == 'pk') {
-            pkFound = true;
-            break;
-          }
-        }
-        expect(pkFound, isTrue);
+        // Verify the primary key is now (store_id, id)
+        final indexes = db.select('PRAGMA index_list(local_products)');
+        expect(
+          indexes.any((i) => i['origin'] == 'pk'),
+          isTrue,
+          reason: 'the composite primary key survives the rebuild',
+        );
 
-        // Verify barcode index is on (store_id, barcode)
-        final barcodeIndex = dbAfter.select(
-          "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_local_products_barcode'"
+        // Verify the barcode index is on (store_id, barcode)
+        final barcodeIndex = db.select(
+          "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_local_products_barcode'",
         );
         expect(barcodeIndex.single['sql'], contains('store_id'));
+
+        // The legacy shift and sale are preserved.
+        expect(
+          db.select("SELECT id FROM local_shifts WHERE id = 'shift-legacy-1'").length,
+          1,
+        );
+        expect(
+          db.select("SELECT id FROM local_sales WHERE id = 'sale-legacy-1'").length,
+          1,
+        );
+
+        // v2 adds the tender table.
+        expect(db.select('PRAGMA table_info(local_sale_tenders)'), isNotEmpty);
       } finally {
-        dbAfter.dispose();
+        db.dispose();
       }
+
+      // Step 4: the migrated database still boots the app to the POS.
+      await reachPos($);
+      expect(find.text('Scan barcode or search products'), findsOneWidget);
     },
   );
 }

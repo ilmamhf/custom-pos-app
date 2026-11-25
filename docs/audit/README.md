@@ -9,12 +9,32 @@
 | 2026-11-22 | `2026-11-22/operations-runbook.md` | Production deployment, config, migrations, health, backups, observability, rate limiting, payment/offline, printer, incident ownership |
 | 2026-11-23 | `2026-11-23/project-audit.md` | **Post-remediation audit** (commit `7e5024b`) — P0 complete, updated readiness, residual findings, prioritized roadmap |
 | 2026-11-24 | `2026-11-23/remediation-log.md` | **P1/P2 execution log** — H-13, R-01, R-03, R-04, R-02, R-06, migration backfill, and M-02 cookie/CSRF sessions, with verification results |
+| 2026-11-25 | `2026-11-24/` | **CI/E2E unification** (branch `ci/unify-validation`, PR #1) — Fixed 3 failing CI jobs from `c068646`: Backups (metric contract split + age-keygen permission), React Admin E2E (auth mode + CORS + throttle), Flutter POS Patrol Web (web-compatible migration test) |
 
 ## Quick links
 
 - **Current state:** [`2026-11-23/project-audit.md`](2026-11-23/project-audit.md)
 - **P1/P2 fixes:** [`2026-11-23/remediation-log.md`](2026-11-23/remediation-log.md)
+- **CI/E2E fix results:** [`2026-11-24/ci-e2e-fix-results.md`](2026-11-24/ci-e2e-fix-results.md)
+- **CI/E2E fix plan:** [`2026-11-24/ci-e2e-fix-plan.md`](2026-11-24/ci-e2e-fix-plan.md)
 - **Baseline findings:** [`2026-11-22/project-audit-1.md`](2026-11-22/project-audit-1.md)
 - **P0 fixes:** [`2026-11-22/remediation-log.md`](2026-11-22/remediation-log.md)
 - **Operations runbook:** [`2026-11-22/operations-runbook.md`](2026-11-22/operations-runbook.md)
 - **Remaining work:** See "Residual findings" section in [`2026-11-23/project-audit.md`](2026-11-23/project-audit.md#4-residual-findings-from-recheck)
+
+## CI/E2E Run Evidence (2026-11-25) — Final Results
+
+| Workflow | Job | Status | Run URL |
+|----------|-----|--------|---------|
+| E2E | React Admin (Playwright) | ✅ success (1m33s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168336/job/139222428515 |
+| CI | React Admin (typecheck, test, build) | ✅ success (35s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429/job/139222429443 |
+| CI | API (lint-free typecheck, unit, e2e) | ✅ success (59s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429/job/139222429439 |
+| CI | Flutter POS (analyze, test, web build) | ✅ success (1m17s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429/job/139222429264 |
+| CI | Flutter POS (legacy flutter drive) | ✅ success (2m8s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168336/job/139222428808 |
+| CI | Container images (build + smoke test) | ✅ success (2m34s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429/job/139222429040 |
+| CI | Dependency audit (blocking) | ✅ success (12s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429/job/139222429380 |
+| CI | Monitoring (Prometheus config + alert rules) | ✅ success (12s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429/job/139222429274 |
+| CI | **Backups** | ✅ success (1m35s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429/job/139222429640 |
+| E2E | **Flutter POS (Patrol web)** | ✅ success (6m4s, 7/7 tests) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168336/job/139222428906 |
+
+> **Note on Patrol Web**: Previously failing due to sync mechanism not pulling catalog for fresh IndexedDB. Fixed by: (1) preserving `local_products` and `local_sync_state` in tearDown (only clearing transactional tables), (2) triggering sync + trivial server-side price change to force working delta sync. All 7 tests now pass.

@@ -22,6 +22,10 @@ test.describe('Dashboard', () => {
 
     await pushSale(cashierToken, bks.id, {
       shiftId: shift.id,
+      // Use the server's shift timestamp: the API rejects a sale that predates
+      // its shift, and the test runner's clock can be a few hundred ms behind
+      // the database host.
+      createdAt: shift.openedAt,
       productId: teh.id,
       unitPrice: 8000,
       qty: 1,

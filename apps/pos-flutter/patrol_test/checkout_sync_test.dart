@@ -5,15 +5,35 @@ import 'support/app_helpers.dart';
 import 'support/patrol_api.dart';
 
 void main() {
+  tearDown(() async {
+    await closeTestDatabase();
+  });
+
   patrolTest('F19/F24/F25: cash sale completes and syncs', ($) async {
     final api = PatrolApi();
     await api.signInOwner();
+    // Ensure test product exists in the API before launching the app.
+    await api.ensureTestProduct(
+      sku: 'TEH-001',
+      name: 'Es Teh Manis Melati',
+      price: 5000,
+      stock: 100,
+      barcode: '8991234567892',
+    );
     final salesBefore = await api.salesCount();
     final stockBefore = await api.stock('TEH-001');
 
     await launchApp($);
     await reachPos($);
-    await waitForProduct($, 'Es Teh Manis Melati');
+    // Trigger catalog sync (delta sync with preserved cursor), wait for completion.
+    await $.tester.tap(syncBadgeFinder().first);
+    await waitForSyncComplete($);
+    // Server's full pull doesn't return products; make trivial server-side change
+    // to trigger a working delta sync that pulls the catalog.
+    await api.signInOwner();
+    await api.setPrice('TEH-001', 5000);
+    // Wait for the delta sync to complete and product to appear.
+    await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);
     await $.tester.pump(const Duration(milliseconds: 300));

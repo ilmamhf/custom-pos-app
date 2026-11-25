@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol_finders/patrol_finders.dart';
+import 'package:pos_flutter/core/database/app_database.dart';
 import 'package:pos_flutter/main.dart' as app;
 
 final _syncIcons = <IconData>{
@@ -10,6 +11,63 @@ final _syncIcons = <IconData>{
   Icons.sync,
   Icons.error,
 };
+
+/// Tracks the test database so it can be closed in tearDown.
+AppDatabase? _testDatabase;
+
+/// Returns the current test database, creating one if needed.
+/// Uses open() for persisted DB; tables are cleared in tearDown for isolation.
+Future<AppDatabase> _getOrCreateTestDatabase() async {
+  if (_testDatabase == null) {
+    _testDatabase = await AppDatabase.open();
+  }
+  return _testDatabase!;
+}
+
+/// Clears transactional tables for test isolation, preserves catalog & sync state.
+/// 
+/// Preserves `local_products` and `local_sync_state` so the sync mechanism
+/// (delta pull via cursor) continues to work. Only clears tables that contain
+/// test-specific transactional data.
+Future<void> closeTestDatabase() async {
+  if (_testDatabase != null) {
+    final db = _testDatabase!;
+    // Clear only transactional tables for isolation
+    for (final table in const [
+      'local_sale_tenders',
+      'local_sale_items',
+      'local_sales',
+      'local_shifts',
+      'sync_outbox',
+      // PRESERVED: 'local_products' (catalog), 'local_sync_state' (sync cursor)
+    ]) {
+      try {
+        db.execute('DELETE FROM $table');
+      } catch (_) {
+        // Table might not exist, ignore
+      }
+    }
+    db.close();
+    _testDatabase = null;
+  }
+}
+
+/// Launches the app with a fresh test database.
+/// Call [closeTestDatabase] in tearDown to clear tables and release resources.
+Future<void> launchApp(PatrolTester $) async {
+  final db = await _getOrCreateTestDatabase();
+  await $.pumpWidget(await app.createApp(database: db));
+  await $.tester.pump(const Duration(seconds: 1));
+  await pumpUntil($.tester, find.byType(Scaffold),
+      timeout: const Duration(seconds: 30), reason: 'app shell');
+}
+
+/// Convenience: launches app and advances to POS.
+/// Call [closeTestDatabase] in tearDown to release the IndexedDB handle.
+Future<void> launchAndReachPos(PatrolTester $) async {
+  await launchApp($);
+  await reachPos($);
+}
 
 Future<void> pumpUntil(
   WidgetTester tester,
@@ -46,13 +104,6 @@ Finder syncBadgeFinder() {
     final icon = widget.icon;
     return icon is Icon && _syncIcons.contains(icon.icon);
   });
-}
-
-Future<void> launchApp(PatrolTester $) async {
-  await $.pumpWidget(await app.createApp());
-  await $.tester.pump(const Duration(seconds: 1));
-  await pumpUntil($.tester, find.byType(Scaffold),
-      timeout: const Duration(seconds: 30), reason: 'app shell');
 }
 
 Future<void> signIn(
@@ -112,9 +163,23 @@ Future<void> reachPos(PatrolTester $) async {
       timeout: const Duration(seconds: 60), reason: 'POS');
 }
 
-Future<void> waitForProduct(PatrolTester $, String name) async {
+Future<void> waitForProduct(PatrolTester $, String name,
+    {Duration timeout = const Duration(seconds: 60)}) async {
   await pumpUntil($.tester, find.text(name),
-      timeout: const Duration(seconds: 60), reason: name);
+      timeout: timeout, reason: name);
+}
+
+/// Waits for the sync badge to show the "done" state (cloud_done icon),
+/// indicating the catalog sync has completed.
+/// Returns when sync is done, or times out after [timeout].
+Future<void> waitForSyncComplete(PatrolTester $,
+    {Duration timeout = const Duration(seconds: 180)}) async {
+  await pumpUntil(
+    $.tester,
+    find.byIcon(Icons.cloud_done),
+    timeout: timeout,
+    reason: 'catalog sync to complete (cloud_done)',
+  );
 }
 
 /// Opens the mobile cart sheet if the wide cart panel is not visible.

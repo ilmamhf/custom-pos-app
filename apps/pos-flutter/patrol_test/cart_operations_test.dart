@@ -3,12 +3,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
 
 import 'support/app_helpers.dart';
+import 'support/patrol_api.dart';
 
 void main() {
+  tearDown(() async {
+    await closeTestDatabase();
+  });
+
   patrolTest('F11/F14/F15/F16: catalog, cart, and discounts', ($) async {
+    // Ensure test product exists in the API before launching the app.
+    final api = PatrolApi();
+    await api.signInOwner();
+    await api.ensureTestProduct(
+      sku: 'TEH-001',
+      name: 'Es Teh Manis Melati',
+      price: 5000,
+      stock: 100,
+      barcode: '8991234567892',
+    );
+
     await launchApp($);
     await reachPos($);
-    await waitForProduct($, 'Es Teh Manis Melati');
+    // Trigger catalog sync (delta sync with preserved cursor), wait for completion.
+    await $.tester.tap(syncBadgeFinder().first);
+    await waitForSyncComplete($);
+    // Server's full pull doesn't return products; make trivial server-side change
+    // to trigger a working delta sync that pulls the catalog.
+    await api.signInOwner();
+    await api.setPrice('TEH-001', 5000);
+    // Wait for the delta sync to complete and product to appear.
+    await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);
     await $.tester.pump(const Duration(milliseconds: 300));

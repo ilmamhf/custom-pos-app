@@ -40,6 +40,10 @@ e2e/.tools/
 apps/pos-flutter/playwright-report/
 apps/pos-flutter/test-results/
 apps/pos-flutter/patrol_videos/
+patrol-report/
+patrol-report-dl/
+playwright-report/
+playwright-test-results/
 
 # Environment
 *.env

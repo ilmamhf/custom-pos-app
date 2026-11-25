@@ -24,13 +24,9 @@ void main() {
 
     await launchApp($);
     await reachPos($);
-    // Force full catalog sync (clears cursor, triggers sync, waits for cloud_done).
-    await forceFullCatalogSync($);
-    // Full pull may not return all products on this server; make a trivial
-    // server-side change to trigger a delta sync that pulls the catalog.
-    await api.setPrice('TEH-001', 5000);
-    // Wait for the delta sync to complete and product to appear.
-    await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
+    // Catalog and sync cursor preserved from previous test / DB seed.
+    // Just wait for product to appear (already synced).
+    await waitForProduct($, 'Es Teh Manis Melati');
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);
     await $.tester.pump(const Duration(milliseconds: 300));

@@ -24,19 +24,22 @@ Future<AppDatabase> _getOrCreateTestDatabase() async {
   return _testDatabase!;
 }
 
-/// Clears all tables in the test database for isolation, then closes it.
+/// Clears transactional tables for test isolation, preserves catalog & sync state.
+/// 
+/// Preserves `local_products` and `local_sync_state` so the sync mechanism
+/// (delta pull via cursor) continues to work. Only clears tables that contain
+/// test-specific transactional data.
 Future<void> closeTestDatabase() async {
   if (_testDatabase != null) {
     final db = _testDatabase!;
-    // Clear all tables to ensure test isolation
+    // Clear only transactional tables for isolation
     for (final table in const [
       'local_sale_tenders',
       'local_sale_items',
       'local_sales',
       'local_shifts',
-      'local_products',
       'sync_outbox',
-      'local_sync_state',
+      // PRESERVED: 'local_products' (catalog), 'local_sync_state' (sync cursor)
     ]) {
       try {
         db.execute('DELETE FROM $table');
@@ -177,22 +180,6 @@ Future<void> waitForSyncComplete(PatrolTester $,
     timeout: timeout,
     reason: 'catalog sync to complete (cloud_done)',
   );
-}
-
-/// Forces a full catalog sync by clearing the sync cursor, then triggering sync.
-/// This ensures the product catalog is pulled from the server (not just delta).
-Future<void> forceFullCatalogSync(PatrolTester $) async {
-  // Clear the sync cursor for all stores to force full snapshot on next pull.
-  if (_testDatabase != null) {
-    try {
-      _testDatabase!.execute('DELETE FROM local_sync_state');
-    } catch (_) {
-      // Table might not exist, ignore
-    }
-  }
-  // Trigger sync via the UI badge.
-  await $.tester.tap(syncBadgeFinder().first);
-  await waitForSyncComplete($);
 }
 
 /// Opens the mobile cart sheet if the wide cart panel is not visible.

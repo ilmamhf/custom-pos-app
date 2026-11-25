@@ -283,13 +283,13 @@ jobs:
           docker volume create pos-ci-drill
           # Copy age-identity.txt to a temp location using sudo (original is
           # root-owned from age-keygen container), make it world-readable with sudo,
-          # and mount that.
+          # and mount that. Run as postgres user (UID 999) so pg_ctl works.
           mkdir -p /tmp/backup-keys
           sudo cp "$PWD/deploy/backup/age-identity.txt" /tmp/backup-keys/
           sudo chmod 644 /tmp/backup-keys/age-identity.txt
-          # Run as root (via --entrypoint sh) and invoke restore-drill.sh directly
-          # (like age-keygen) to avoid pos-entrypoint.sh dropping privileges.
-          docker run --rm --network host --entrypoint sh \
+          # Run as postgres user (UID 999) so pg_ctl can start the scratch instance.
+          # The world-readable age-identity.txt allows the postgres user to read it.
+          docker run --rm --network host --user 999 \
             -e PGUSER=pos -e PGPASSWORD=pos -e PGDATABASE=pos \
             -e BACKUP_AGE_IDENTITY=/keys/age-identity.txt \
             -e DRILL_PORT=55432 \

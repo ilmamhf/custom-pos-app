@@ -31,6 +31,8 @@ jobs:
       CI: 'true'
       E2E_DATABASE_URL: postgresql://pos:pos@localhost:5432/pos_e2e?schema=public
       API_BASE_URL: http://localhost:3100/api/v1
+      AUTH_LOGIN_THROTTLE_LIMIT: '50'
+      AUTH_LOGIN_THROTTLE_TTL_MS: '60000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -231,15 +233,29 @@ jobs:
       - name: Start API
         working-directory: apps/api-nestjs
         run: |
+          # Check port availability first
+          if ss -tlnp | grep ':3100 '; then
+            echo "Port 3100 already in use"
+            ss -tlnp | grep ':3100 '
+            exit 1
+          fi
+          # Verify critical dependencies are bundled
+          node -e "require('@nestjs/throttler'); require('@prisma/client'); require('@prisma/adapter-pg'); console.log('Critical deps OK')"
           nohup node dist/main.js > api.log 2>&1 &
-          for i in $(seq 1 60); do
+          API_PID=$!
+          for i in $(seq 1 120); do
             if curl -sf http://localhost:3100/api/v1/health > /dev/null; then
               echo "API ready"
               exit 0
             fi
+            if ! kill -0 $API_PID 2>/dev/null; then
+              echo "API process died unexpectedly"
+              cat api.log
+              exit 1
+            fi
             sleep 1
           done
-          echo "API failed to start"
+          echo "API failed to start after 120s"
           cat api.log
           exit 1
       - uses: subosito/flutter-action@v2

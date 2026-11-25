@@ -29,6 +29,13 @@ fi
 
 mkdir -p "${BACKUP_DIR}" "${BASE_BACKUP_DIR}"
 
+# Ensure the Prometheus textfile collector directory exists and is writable
+# The backup image runs as postgres (UID 999), but the volume may be created as root.
+if [ -n "${PROMETHEUS_TEXTFILE_DIR:-}" ]; then
+  mkdir -p "${PROMETHEUS_TEXTFILE_DIR}"
+  chown -R postgres:postgres "${PROMETHEUS_TEXTFILE_DIR}" 2>/dev/null || true
+fi
+
 STAMP="$(date -u +'%Y%m%dT%H%M%SZ')"
 WORK_DIR="${BASE_BACKUP_DIR}/${STAMP}"
 

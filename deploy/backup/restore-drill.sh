@@ -39,6 +39,13 @@ trap cleanup EXIT
 
 mkdir -p "${DRILL_DATA_DIR}" "$(dirname "${DRILL_REPORT}")"
 
+# Ensure the Prometheus textfile collector directory exists and is writable
+# The backup image runs as postgres (UID 999), but the volume may be created as root.
+if [ -n "${PROMETHEUS_TEXTFILE_DIR:-}" ]; then
+  mkdir -p "${PROMETHEUS_TEXTFILE_DIR}"
+  chown -R postgres:postgres "${PROMETHEUS_TEXTFILE_DIR}" 2>/dev/null || true
+fi
+
 # --- 1. Find the backup ----------------------------------------------------
 NEWEST_META="$(find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'base-*.meta.json' | sort | tail -n 1)"
 if [ -z "${NEWEST_META}" ]; then

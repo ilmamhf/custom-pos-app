@@ -42,7 +42,7 @@ test.describe('Auth and role guards', () => {
     await loginAs(page, 'owner');
     await page.goto('/settings');
     await expect(
-      page.getByRole('heading', { name: /System Settings/i })
+      page.getByRole('heading', { name: /System Settings & Administration/i })
     ).toBeVisible();
   });
 });

@@ -210,6 +210,8 @@ jobs:
           docker volume create pos-ci-wal
           docker volume create pos-ci-backups
           docker volume create pos-ci-textfile
+          # Pre-create the textfile collector directory with correct ownership (postgres UID 999)
+          docker run --rm -v pos-ci-textfile:/data alpine sh -c "mkdir -p /data && chown -R 999:999 /data"
           docker run -d --name pos-pg-ci --network host \
             -e POSTGRES_USER=pos -e POSTGRES_PASSWORD=pos -e POSTGRES_DB=pos \
             -e BACKUP_AGE_RECIPIENT_FILE=/etc/backup/age-recipient.txt \

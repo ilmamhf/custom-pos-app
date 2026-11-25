@@ -25,8 +25,9 @@ void main() {
 
     await launchApp($);
     await reachPos($);
-    // Trigger catalog sync (delta sync with preserved cursor) and wait for product.
+    // Trigger catalog sync (delta sync with preserved cursor), wait for completion, then product.
     await $.tester.tap(syncBadgeFinder().first);
+    await waitForSyncComplete($);
     await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);

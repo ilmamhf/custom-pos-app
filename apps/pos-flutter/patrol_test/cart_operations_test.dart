@@ -26,7 +26,12 @@ void main() {
     await reachPos($);
     // Force full catalog sync (clears cursor, triggers sync, waits for cloud_done).
     await forceFullCatalogSync($);
-    // CI can be slow; allow more time for catalog to appear after full sync.
+    // Full pull may not return all products on this server; make a trivial
+    // server-side change to trigger a delta sync that pulls the catalog.
+    final api = PatrolApi();
+    await api.signInOwner();
+    await api.setPrice('TEH-001', 5000);
+    // Wait for the delta sync to complete and product to appear.
     await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);

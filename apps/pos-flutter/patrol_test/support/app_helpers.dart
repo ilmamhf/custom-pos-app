@@ -179,6 +179,22 @@ Future<void> waitForSyncComplete(PatrolTester $,
   );
 }
 
+/// Forces a full catalog sync by clearing the sync cursor, then triggering sync.
+/// This ensures the product catalog is pulled from the server (not just delta).
+Future<void> forceFullCatalogSync(PatrolTester $) async {
+  // Clear the sync cursor for all stores to force full snapshot on next pull.
+  if (_testDatabase != null) {
+    try {
+      _testDatabase!.execute('DELETE FROM local_sync_state');
+    } catch (_) {
+      // Table might not exist, ignore
+    }
+  }
+  // Trigger sync via the UI badge.
+  await $.tester.tap(syncBadgeFinder().first);
+  await waitForSyncComplete($);
+}
+
 /// Opens the mobile cart sheet if the wide cart panel is not visible.
 Future<void> ensureCartVisible(PatrolTester $) async {
   if (find.text('Cart').evaluate().isNotEmpty) return;

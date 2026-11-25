@@ -16,24 +16,41 @@ final _syncIcons = <IconData>{
 AppDatabase? _testDatabase;
 
 /// Returns the current test database, creating one if needed.
-/// Uses inMemory() for true test isolation (no shared IndexedDB state).
+/// Uses open() for persisted DB; tables are cleared in tearDown for isolation.
 Future<AppDatabase> _getOrCreateTestDatabase() async {
   if (_testDatabase == null) {
-    _testDatabase = await AppDatabase.inMemory();
+    _testDatabase = await AppDatabase.open();
   }
   return _testDatabase!;
 }
 
-/// Closes the test database if it exists.
+/// Clears all tables in the test database for isolation, then closes it.
 Future<void> closeTestDatabase() async {
   if (_testDatabase != null) {
-    _testDatabase!.close();
+    final db = _testDatabase!;
+    // Clear all tables to ensure test isolation
+    for (final table in const [
+      'local_sale_tenders',
+      'local_sale_items',
+      'local_sales',
+      'local_shifts',
+      'local_products',
+      'sync_outbox',
+      'local_sync_state',
+    ]) {
+      try {
+        db.execute('DELETE FROM $table');
+      } catch (_) {
+        // Table might not exist, ignore
+      }
+    }
+    db.close();
     _testDatabase = null;
   }
 }
 
-/// Launches the app with a fresh in-memory test database.
-/// Call [closeTestDatabase] in tearDown to release resources.
+/// Launches the app with a fresh test database.
+/// Call [closeTestDatabase] in tearDown to clear tables and release resources.
 Future<void> launchApp(PatrolTester $) async {
   final db = await _getOrCreateTestDatabase();
   await $.pumpWidget(await app.createApp(database: db));

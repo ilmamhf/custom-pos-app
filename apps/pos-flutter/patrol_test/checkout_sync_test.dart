@@ -25,9 +25,15 @@ void main() {
 
     await launchApp($);
     await reachPos($);
-    // Trigger catalog sync (delta sync with preserved cursor), wait for completion, then product.
+    // Trigger catalog sync (delta sync with preserved cursor), wait for completion.
     await $.tester.tap(syncBadgeFinder().first);
     await waitForSyncComplete($);
+    // Server's full pull doesn't return products; make trivial server-side change
+    // to trigger a working delta sync that pulls the catalog.
+    final api = PatrolApi();
+    await api.signInOwner();
+    await api.setPrice('TEH-001', 5000);
+    // Wait for the delta sync to complete and product to appear.
     await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);

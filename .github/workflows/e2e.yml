@@ -31,8 +31,8 @@ jobs:
       CI: 'true'
       E2E_DATABASE_URL: postgresql://pos:pos@localhost:5432/pos_e2e?schema=public
       API_BASE_URL: http://localhost:3100/api/v1
-      AUTH_LOGIN_THROTTLE_LIMIT: '50'
-      AUTH_LOGIN_THROTTLE_TTL_MS: '60000'
+      # The API env (CORS origin, login throttle) lives in
+      # e2e/playwright.config.ts so local runs and CI cannot drift.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

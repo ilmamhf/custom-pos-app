@@ -129,7 +129,7 @@ export async function createShift(
   openingCash = 0
 ) {
   const id = crypto.randomUUID();
-  return api.post<{ id: string }>(
+  return api.post<{ id: string; openedAt: string }>(
     cashierToken,
     '/shifts/open',
     { id, storeId, openingCash },

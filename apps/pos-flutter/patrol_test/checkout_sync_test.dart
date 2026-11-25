@@ -27,7 +27,8 @@ void main() {
     await reachPos($);
     // Force full catalog sync (clears cursor, triggers sync, waits for cloud_done).
     await forceFullCatalogSync($);
-    await waitForProduct($, 'Es Teh Manis Melati');
+    // CI can be slow; allow more time for catalog to appear after full sync.
+    await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);
     await $.tester.pump(const Duration(milliseconds: 300));

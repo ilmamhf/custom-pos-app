@@ -281,6 +281,9 @@ jobs:
       - name: Run the restore drill
         run: |
           docker volume create pos-ci-drill
+          # Pre-create the drill report directory with postgres UID 999 ownership
+          # so the restore drill (running as postgres user) can write the report.
+          docker run --rm -v pos-ci-drill:/drill alpine sh -c "mkdir -p /drill && chown -R 999:999 /drill"
           # Copy age-identity.txt to a temp location using sudo (original is
           # root-owned from age-keygen container), make it world-readable with sudo,
           # and mount that. Run as postgres user (UID 999) so pg_ctl works.

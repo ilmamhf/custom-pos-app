@@ -29,7 +29,6 @@ void main() {
     await waitForSyncComplete($);
     // Server's full pull doesn't return products; make trivial server-side change
     // to trigger a working delta sync that pulls the catalog.
-    final api = PatrolApi();
     await api.signInOwner();
     await api.setPrice('TEH-001', 5000);
     // Wait for the delta sync to complete and product to appear.

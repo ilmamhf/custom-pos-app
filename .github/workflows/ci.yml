@@ -281,8 +281,8 @@ jobs:
       - name: Run the restore drill
         run: |
           docker volume create pos-ci-drill
-          # Use regular volume mount (like age-keygen) so the identity file is readable.
-          # Mount deploy/backup to /keys and reference age-identity.txt from there.
+          # Run as root (via --entrypoint sh) and invoke restore-drill.sh directly
+          # (like age-keygen) to avoid pos-entrypoint.sh dropping privileges.
           docker run --rm --network host --entrypoint sh \
             -e PGUSER=pos -e PGPASSWORD=pos -e PGDATABASE=pos \
             -e BACKUP_AGE_IDENTITY=/keys/age-identity.txt \
@@ -294,7 +294,7 @@ jobs:
             -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \
             -v pos-ci-drill:/drill \
             -v "$PWD/deploy/backup:/keys:ro" \
-            pos-backup:ci -c '/usr/local/bin/pos-entrypoint.sh /usr/local/bin/restore-drill.sh'
+            pos-backup:ci /usr/local/bin/restore-drill.sh
       - name: Check the drill report
         run: |
           # Post-drill contract: the drill metric and the drill report must

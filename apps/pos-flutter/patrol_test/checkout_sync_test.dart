@@ -29,8 +29,6 @@ void main() {
     await forceFullCatalogSync($);
     // Full pull may not return all products on this server; make a trivial
     // server-side change to trigger a delta sync that pulls the catalog.
-    final api = PatrolApi();
-    await api.signInOwner();
     await api.setPrice('TEH-001', 5000);
     // Wait for the delta sync to complete and product to appear.
     await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));

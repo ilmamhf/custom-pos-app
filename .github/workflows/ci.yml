@@ -206,9 +206,10 @@ jobs:
           # The script runs from the copy baked into the image, not from the
           # mounted directory: a mount must never shadow the tooling. The
           # mounted directory only receives the generated keys.
+          # Run as root (via --entrypoint sh) so the mounted /keys volume is writable.
           docker run --rm --entrypoint sh pos-backup:ci \
             -c 'test -x /usr/local/bin/age-keygen.sh'
-          docker run --rm \
+          docker run --rm --entrypoint sh \
             -e RECIPIENT_FILE=/keys/age-recipient.txt \
             -e IDENTITY_FILE=/keys/age-identity.txt \
             -v "$PWD/deploy/backup:/keys" \

@@ -26,13 +26,15 @@
 
 | Workflow | Job | Status | Run URL |
 |----------|-----|--------|---------|
-| E2E | React Admin (Playwright) | ✅ success (1m57s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729849/job/139100093888 |
-| CI | React Admin (typecheck, test, build) | ✅ success (35s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729818/job/139099903255 |
-| CI | API (lint-free typecheck, unit, e2e) | ✅ success (56s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729818/job/139099902691 |
-| CI | Flutter POS (analyze, test, web build) | ✅ success (1m17s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729818/job/139099902956 |
-| CI | Flutter POS (legacy flutter drive) | ✅ success (2m13s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729849/job/139100094456 |
-| CI | Container images (build + smoke test) | ✅ success (2m38s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729818/job/139099903030 |
-| CI | Dependency audit (blocking) | ✅ success (12s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729818/job/139099903013 |
-| CI | Monitoring (Prometheus config + alert rules) | ✅ success (17s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729818/job/139099902984 |
-| CI | **Backups** | ✅ success (1m35s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729818/job/139099903119 |
-| E2E | **Flutter POS (Patrol web)** | ❌ fail (6m33s, pre-existing isolation) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45583729849/job/139100095779 |
+| E2E | React Admin (Playwright) | ✅ success (1m34s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596134034/job/139142561238 |
+| CI | React Admin (typecheck, test, build) | ✅ success (39s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142559908 |
+| CI | API (lint-free typecheck, unit, e2e) | ✅ success (1m12s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560452 |
+| CI | Flutter POS (analyze, test, web build) | ✅ success (1m16s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560307 |
+| CI | Flutter POS (legacy flutter drive) | ✅ success (2m22s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596134034/job/139142561168 |
+| CI | Container images (build + smoke test) | ✅ success (3m21s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560355 |
+| CI | Dependency audit (blocking) | ✅ success (16s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560416 |
+| CI | Monitoring (Prometheus config + alert rules) | ✅ success (11s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560547 |
+| CI | **Backups** | ✅ success (1m46s) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560585 |
+| E2E | **Flutter POS (Patrol web)** | ❌ fail (6m29s, **pre-existing isolation**) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45596134034/job/139142561299 |
+
+> **Note on Patrol Web**: The Patrol web failure is a **pre-existing test isolation issue** — shared IndexedDB state between bundled tests causes `cart_operations_test` and `checkout_sync_test` to timeout waiting for products after sync. 5/7 tests pass individually (auth, shift, price_sync, migration). The sync badge click does not trigger a full catalog pull for a fresh test DB. This is documented in AGENTS.md as "pre-existing, not a regression" and is not excluded per instructions; a proper fix would require closing `AppDatabase` between tests in the test harness.

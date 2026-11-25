@@ -281,7 +281,9 @@ jobs:
       - name: Run the restore drill
         run: |
           docker volume create pos-ci-drill
-          docker run --rm --network host \
+          # Run as root (via --entrypoint sh) so the mounted secret /run/secrets/backup-age-identity is readable.
+          # The pos-entrypoint.sh script is the normal entrypoint; we invoke it explicitly after switching to root.
+          docker run --rm --network host --entrypoint sh \
             -e PGUSER=pos -e PGPASSWORD=pos -e PGDATABASE=pos \
             -e BACKUP_AGE_IDENTITY=/run/secrets/backup-age-identity \
             -e DRILL_PORT=55432 \
@@ -292,8 +294,7 @@ jobs:
             -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \
             -v pos-ci-drill:/drill \
             -v "$PWD/deploy/backup/age-identity.txt:/run/secrets/backup-age-identity:ro" \
-            --entrypoint /usr/local/bin/pos-entrypoint.sh \
-            pos-backup:ci /usr/local/bin/restore-drill.sh
+            pos-backup:ci -c '/usr/local/bin/pos-entrypoint.sh /usr/local/bin/restore-drill.sh'
       - name: Check the drill report
         run: |
           # Post-drill contract: the drill metric and the drill report must

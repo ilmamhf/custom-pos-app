@@ -160,9 +160,10 @@ Future<void> reachPos(PatrolTester $) async {
       timeout: const Duration(seconds: 60), reason: 'POS');
 }
 
-Future<void> waitForProduct(PatrolTester $, String name) async {
+Future<void> waitForProduct(PatrolTester $, String name,
+    {Duration timeout = const Duration(seconds: 60)}) async {
   await pumpUntil($.tester, find.text(name),
-      timeout: const Duration(seconds: 60), reason: name);
+      timeout: timeout, reason: name);
 }
 
 /// Opens the mobile cart sheet if the wide cart panel is not visible.

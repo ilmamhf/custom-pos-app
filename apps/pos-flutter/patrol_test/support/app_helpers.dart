@@ -16,8 +16,11 @@ final _syncIcons = <IconData>{
 AppDatabase? _testDatabase;
 
 /// Returns the current test database, creating one if needed.
+/// Uses inMemory() for true test isolation (no shared IndexedDB state).
 Future<AppDatabase> _getOrCreateTestDatabase() async {
-  _testDatabase ??= await AppDatabase.open();
+  if (_testDatabase == null) {
+    _testDatabase = await AppDatabase.inMemory();
+  }
   return _testDatabase!;
 }
 
@@ -29,8 +32,8 @@ Future<void> closeTestDatabase() async {
   }
 }
 
-/// Launches the app with a fresh test database.
-/// Call [closeTestDatabase] in tearDown to release the IndexedDB handle.
+/// Launches the app with a fresh in-memory test database.
+/// Call [closeTestDatabase] in tearDown to release resources.
 Future<void> launchApp(PatrolTester $) async {
   final db = await _getOrCreateTestDatabase();
   await $.pumpWidget(await app.createApp(database: db));

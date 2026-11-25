@@ -202,7 +202,17 @@ jobs:
         run: |
           # The committed recipient is overwritten on purpose: CI proves the
           # whole flow with a keypair it generates itself.
-          docker run --rm -v "$PWD/deploy/backup:/backup" --entrypoint bash pos-backup:ci /backup/age-keygen.sh
+          #
+          # The script runs from the copy baked into the image, not from the
+          # mounted directory: a mount must never shadow the tooling. The
+          # mounted directory only receives the generated keys.
+          docker run --rm --entrypoint sh pos-backup:ci \
+            -c 'test -x /usr/local/bin/age-keygen.sh'
+          docker run --rm \
+            -e RECIPIENT_FILE=/keys/age-recipient.txt \
+            -e IDENTITY_FILE=/keys/age-identity.txt \
+            -v "$PWD/deploy/backup:/keys" \
+            pos-backup:ci /usr/local/bin/age-keygen.sh
           grep -q '^age1' deploy/backup/age-recipient.txt
           test -s deploy/backup/age-identity.txt
       - name: Start PostgreSQL with the WAL archiving
@@ -258,8 +268,11 @@ jobs:
             pos-backup:ci /usr/local/bin/backup.sh
       - name: Check that the backup is encrypted and complete
         run: |
+          # Pre-drill contract: the backup timestamp must exist, the drill
+          # metric must NOT be expected yet.
           docker run --rm \
             -e PROMETHEUS_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
+            -e VERIFY_EXPECT_DRILL=false \
             -v pos-ci-backups:/backups \
             -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \
             --entrypoint /usr/local/bin/pos-entrypoint.sh \
@@ -282,7 +295,12 @@ jobs:
             pos-backup:ci /usr/local/bin/restore-drill.sh
       - name: Check the drill report
         run: |
+          # Post-drill contract: the drill metric and the drill report must
+          # exist. The metric directory and the report volume are mounted
+          # because this container is not the one that ran the drill.
           docker run --rm \
+            -e PROMETHEUS_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
+            -e VERIFY_EXPECT_DRILL=true \
             -e DRILL_REPORT_DIR=/drill \
             -v pos-ci-backups:/backups \
             -v pos-ci-textfile:/var/lib/node_exporter/textfile_collector \

@@ -54,7 +54,13 @@ The committed recipient was generated with the command below. To make your
 own:
 
 ```bash
-docker run --rm -v "$(pwd)/deploy/backup:/backup" --entrypoint bash pos-backup:latest /backup/age-keygen.sh
+# Build the image first: the script runs from the image, never from a mount.
+docker build -t pos-backup:latest -f deploy/backup/Dockerfile deploy/backup
+docker run --rm \
+  -e RECIPIENT_FILE=/keys/age-recipient.txt \
+  -e IDENTITY_FILE=/keys/age-identity.txt \
+  -v "$(pwd)/deploy/backup:/keys" \
+  pos-backup:latest /usr/local/bin/age-keygen.sh
 ```
 
 The script writes the public key to `age-recipient.txt` and the private key
@@ -115,11 +121,18 @@ docker compose --profile backup run --rm --entrypoint cat restore-drill /drill/r
 newest backup is an age file, its metadata is complete, the stored file
 matches its checksum, and the metrics were published.
 
+Right after the backup the drill has not run yet, so the verifier only expects
+the backup timestamp. After the drill, run it with `VERIFY_EXPECT_DRILL=true`
+so the drill metric and the drill report are required too:
+
 ```bash
 docker run --rm \
   -e PROMETHEUS_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector \
+  -e VERIFY_EXPECT_DRILL=true \
+  -e DRILL_REPORT_DIR=/drill \
   -v pos_pos-backups:/backups \
   -v pos_pos-prometheus-textfile:/var/lib/node_exporter/textfile_collector \
+  -v pos_pos-drill:/drill \
   --entrypoint /usr/local/bin/pos-entrypoint.sh \
   pos-backup:latest /usr/local/bin/verify-backup.sh
 ```
@@ -225,6 +238,7 @@ curl -s http://localhost:9100/metrics | grep pos_backup
 | `PROMETHEUS_TEXTFILE_DIR` | – | Where the metrics are written. Empty disables them |
 | `DRILL_PORT` | `55432` | The port of the scratch instance |
 | `DRILL_REPORT_DIR` | – | Where the drill report is written |
+| `VERIFY_EXPECT_DRILL` | `false` | `true` makes `verify-backup.sh` require the drill metric and the drill report |
 
 ## The authentication rules
 

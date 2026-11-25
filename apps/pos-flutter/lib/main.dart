@@ -22,18 +22,19 @@ Future<void> main() async {
 /// Builds the app root, including async platform setup.
 ///
 /// UI tests (Patrol) pump this instead of calling `runApp()`.
-Future<Widget> createApp() async {
+/// Pass a pre-opened [database] for test isolation (each test gets its own DB).
+Future<Widget> createApp({AppDatabase? database}) async {
   final secureStorage = const FlutterSecureStorage();
   final authInterceptor = AuthInterceptor(secureStorage);
   final dio = createDioClient(
     secureStorage: secureStorage,
     authInterceptor: authInterceptor,
   );
-  final database = await AppDatabase.open();
+  final db = database ?? await AppDatabase.open();
 
   return ProviderScope(
     overrides: [
-      databaseProvider.overrideWithValue(database),
+      databaseProvider.overrideWithValue(db),
       dioProvider.overrideWithValue(dio),
       authInterceptorProvider.overrideWithValue(authInterceptor),
       secureStorageProvider.overrideWithValue(secureStorage),

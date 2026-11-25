@@ -5,6 +5,10 @@ import 'package:patrol/patrol.dart';
 import 'support/app_helpers.dart';
 
 void main() {
+  tearDown(() async {
+    await closeTestDatabase();
+  });
+
   patrolTest('F11/F14/F15/F16: catalog, cart, and discounts', ($) async {
     await launchApp($);
     await reachPos($);

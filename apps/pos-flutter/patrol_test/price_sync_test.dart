@@ -5,6 +5,10 @@ import 'support/app_helpers.dart';
 import 'support/patrol_api.dart';
 
 void main() {
+  tearDown(() async {
+    await closeTestDatabase();
+  });
+
   patrolTest('F17/F34: admin price change reaches POS after sync', ($) async {
     final api = PatrolApi();
     await api.signInOwner();

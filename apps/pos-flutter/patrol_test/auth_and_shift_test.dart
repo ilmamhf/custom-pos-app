@@ -6,6 +6,10 @@ import 'support/app_helpers.dart';
 import 'support/patrol_api.dart';
 
 void main() {
+  tearDown(() async {
+    await closeTestDatabase();
+  });
+
   patrolTest('F1/F5: cashier signs in and selects a store', ($) async {
     await launchApp($);
     await signIn($);

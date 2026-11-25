@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol_finders/patrol_finders.dart';
+import 'package:pos_flutter/core/database/app_database.dart';
 import 'package:pos_flutter/main.dart' as app;
 
 final _syncIcons = <IconData>{
@@ -10,6 +11,40 @@ final _syncIcons = <IconData>{
   Icons.sync,
   Icons.error,
 };
+
+/// Tracks the test database so it can be closed in tearDown.
+AppDatabase? _testDatabase;
+
+/// Returns the current test database, creating one if needed.
+Future<AppDatabase> _getOrCreateTestDatabase() async {
+  _testDatabase ??= await AppDatabase.open();
+  return _testDatabase!;
+}
+
+/// Closes the test database if it exists.
+Future<void> closeTestDatabase() async {
+  if (_testDatabase != null) {
+    _testDatabase!.close();
+    _testDatabase = null;
+  }
+}
+
+/// Launches the app with a fresh test database.
+/// Call [closeTestDatabase] in tearDown to release the IndexedDB handle.
+Future<void> launchApp(PatrolTester $) async {
+  final db = await _getOrCreateTestDatabase();
+  await $.pumpWidget(await app.createApp(database: db));
+  await $.tester.pump(const Duration(seconds: 1));
+  await pumpUntil($.tester, find.byType(Scaffold),
+      timeout: const Duration(seconds: 30), reason: 'app shell');
+}
+
+/// Convenience: launches app and advances to POS.
+/// Call [closeTestDatabase] in tearDown to release the IndexedDB handle.
+Future<void> launchAndReachPos(PatrolTester $) async {
+  await launchApp($);
+  await reachPos($);
+}
 
 Future<void> pumpUntil(
   WidgetTester tester,
@@ -46,13 +81,6 @@ Finder syncBadgeFinder() {
     final icon = widget.icon;
     return icon is Icon && _syncIcons.contains(icon.icon);
   });
-}
-
-Future<void> launchApp(PatrolTester $) async {
-  await $.pumpWidget(await app.createApp());
-  await $.tester.pump(const Duration(seconds: 1));
-  await pumpUntil($.tester, find.byType(Scaffold),
-      timeout: const Duration(seconds: 30), reason: 'app shell');
 }
 
 Future<void> signIn(

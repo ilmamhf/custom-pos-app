@@ -5,6 +5,10 @@ import 'support/app_helpers.dart';
 import 'support/patrol_api.dart';
 
 void main() {
+  tearDown(() async {
+    await closeTestDatabase();
+  });
+
   patrolTest('F19/F24/F25: cash sale completes and syncs', ($) async {
     final api = PatrolApi();
     await api.signInOwner();

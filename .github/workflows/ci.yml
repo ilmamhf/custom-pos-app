@@ -281,6 +281,9 @@ jobs:
       - name: Run the restore drill
         run: |
           docker volume create pos-ci-drill
+          # Make age-identity.txt world-readable so the postgres user (UID 999)
+          # can read it after the script drops privileges for pg_ctl.
+          chmod 644 "$PWD/deploy/backup/age-identity.txt"
           # Run as root (via --entrypoint sh) and invoke restore-drill.sh directly
           # (like age-keygen) to avoid pos-entrypoint.sh dropping privileges.
           docker run --rm --network host --entrypoint sh \

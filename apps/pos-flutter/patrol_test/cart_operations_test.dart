@@ -24,9 +24,9 @@ void main() {
 
     await launchApp($);
     await reachPos($);
-    // Catalog and sync cursor preserved from previous test / DB seed.
-    // Just wait for product to appear (already synced).
-    await waitForProduct($, 'Es Teh Manis Melati');
+    // Trigger catalog sync (delta sync with preserved cursor) and wait for product.
+    await $.tester.tap(syncBadgeFinder().first);
+    await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);
     await $.tester.pump(const Duration(milliseconds: 300));

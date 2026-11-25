@@ -14,8 +14,9 @@ void main() {
     await reachPos($);
     // Trigger catalog sync so products are available in the fresh test DB.
     await $.tester.tap(syncBadgeFinder().first);
-    // Sync can take time on CI; wait longer for products to appear after sync.
-    await waitForProduct($, 'Es Teh Manis Melati', timeout: const Duration(seconds: 120));
+    // Wait for sync to complete (cloud_done icon) before waiting for products.
+    await waitForSyncComplete($);
+    await waitForProduct($, 'Es Teh Manis Melati');
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);
     await $.tester.pump(const Duration(milliseconds: 300));

@@ -166,6 +166,19 @@ Future<void> waitForProduct(PatrolTester $, String name,
       timeout: timeout, reason: name);
 }
 
+/// Waits for the sync badge to show the "done" state (cloud_done icon),
+/// indicating the catalog sync has completed.
+/// Returns when sync is done, or times out after [timeout].
+Future<void> waitForSyncComplete(PatrolTester $,
+    {Duration timeout = const Duration(seconds: 180)}) async {
+  await pumpUntil(
+    $.tester,
+    find.byIcon(Icons.cloud_done),
+    timeout: timeout,
+    reason: 'catalog sync to complete (cloud_done)',
+  );
+}
+
 /// Opens the mobile cart sheet if the wide cart panel is not visible.
 Future<void> ensureCartVisible(PatrolTester $) async {
   if (find.text('Cart').evaluate().isNotEmpty) return;

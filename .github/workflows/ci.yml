@@ -281,11 +281,12 @@ jobs:
       - name: Run the restore drill
         run: |
           docker volume create pos-ci-drill
-          # Copy age-identity.txt to a temp location we own using sudo (original is
-          # root-owned from age-keygen container), make it world-readable, and mount that.
+          # Copy age-identity.txt to a temp location using sudo (original is
+          # root-owned from age-keygen container), make it world-readable with sudo,
+          # and mount that.
           mkdir -p /tmp/backup-keys
           sudo cp "$PWD/deploy/backup/age-identity.txt" /tmp/backup-keys/
-          chmod 644 /tmp/backup-keys/age-identity.txt
+          sudo chmod 644 /tmp/backup-keys/age-identity.txt
           # Run as root (via --entrypoint sh) and invoke restore-drill.sh directly
           # (like age-keygen) to avoid pos-entrypoint.sh dropping privileges.
           docker run --rm --network host --entrypoint sh \

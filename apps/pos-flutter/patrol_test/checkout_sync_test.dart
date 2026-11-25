@@ -17,6 +17,8 @@ void main() {
 
     await launchApp($);
     await reachPos($);
+    // Trigger catalog sync so products are available in the fresh test DB.
+    await $.tester.tap(syncBadgeFinder().first);
     await waitForProduct($, 'Es Teh Manis Melati');
 
     await $.tester.tap(find.text('Es Teh Manis Melati').first);

@@ -209,6 +209,9 @@ jobs:
       JWT_REFRESH_SECRET: e2e-refresh-secret-at-least-32-characters-long
       CORS_ORIGIN: '*'
       SWAGGER_ENABLED: 'false'
+      # Higher throttle limits for Patrol suite (multiple logins + API calls per test)
+      AUTH_LOGIN_THROTTLE_LIMIT: '50'
+      AUTH_LOGIN_THROTTLE_TTL_MS: '60000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -240,7 +240,7 @@ Contents:
 ## Local data and services (non-UI)
 
 - `core/database/app_database.dart` — SQLite schema + versioned migrations (`PRAGMA user_version`), foreign keys.
-  - Tables: `local_products` (PK `store_id,id`), `local_shifts`, `local_sales`, `local_sale_items`, `sync_outbox`, `local_sync_state`.
+  - Tables: `local_products` (PK `store_id,id`), `local_shifts`, `local_sales`, `local_sale_items`, `local_sale_tenders` (v2 tender breakdown), `sync_outbox`, `local_sync_state`.
 - DAOs:
   - `products_dao` — store-scoped catalog/stock upsert/query/decrement/increment.
   - `sales_dao` — atomic checkout (sale + items + stock + outbox), receipt sequence, cash totals, pending stock deltas, push payloads.

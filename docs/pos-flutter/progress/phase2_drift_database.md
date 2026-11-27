@@ -1,5 +1,7 @@
 # Phase 2: Drift Local DB & DAOs — Complete
 
+> **Historical snapshot (2026-11-21):** the local schema below is v1-era (5 tables). The app now migrates to v2 with `local_sale_tenders` and `local_sync_state`. Current state: [`../../tasks/pos-flutter-screens.md`](../../tasks/pos-flutter-screens.md) and [`../../tasks/2026-11-27/README.md`](../../tasks/2026-11-27/README.md).
+
 **Date:** 2026-11-21
 **Status:** ✅ Complete
 

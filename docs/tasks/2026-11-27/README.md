@@ -128,7 +128,9 @@ Doc checks:
 - Commit: `6db76ef` — `docs: sync status/audit docs and record 2026-11-27 tasks` (15 files, +339/−63)
 - Branch: `docs/sync-audit-2026-11-27` (based on `483108a`)
 - PR: [#2](https://github.com/ilmamhf/custom-pos-app/pull/2) — `MERGEABLE`, open
-- `gh pr checks 2` → **10/10 pass**, run `46026164152` (CI) and `46026164191` (E2E)
+- `gh pr checks 2` → **10/10 pass** on both pushed heads:
+  - `6db76ef` → CI `46026164152`, E2E `46026164191`
+  - `f40f25a` → CI `46027026328`, E2E `46027026323`
 
 ```text
 Backups (encrypted backup + restore drill)      pass  1m39s

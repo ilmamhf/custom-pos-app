@@ -42,6 +42,37 @@ Future<void> pumpUntil(
   throw TestFailure('Timed out waiting for ${reason ?? finder.toString()}');
 }
 
+/// Opens the payment dialog and waits for the "Complete Sale" button.
+///
+/// The cart bottom sheet slides up. A tap that lands mid-animation can hit
+/// the modal barrier and dismiss the sheet instead of pressing "Charge",
+/// which shows up as a flaky "Complete Sale" timeout. Let the sheet settle,
+/// then retry the tap if the dialog does not appear.
+Future<void> openCheckout(WidgetTester tester) async {
+  final cartBar = find.byKey(const Key('mobile-cart-bar'));
+  final chargeButton = find.textContaining('Charge');
+  final completeSale = find.textContaining('Complete Sale');
+
+  for (var attempt = 0; attempt < 3; attempt++) {
+    await tester.pump(const Duration(milliseconds: 400));
+    if (chargeButton.evaluate().isEmpty) {
+      if (cartBar.evaluate().isEmpty) {
+        throw TestFailure('cart bar not found while opening checkout');
+      }
+      await tester.tap(cartBar);
+      await pumpUntil(tester, chargeButton, reason: 'charge button');
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    await tester.tap(chargeButton.first);
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (DateTime.now().isBefore(deadline)) {
+      await tester.pump(const Duration(milliseconds: 200));
+      if (completeSale.evaluate().isNotEmpty) return;
+    }
+  }
+  throw TestFailure('payment dialog did not open after 3 attempts');
+}
+
 Finder syncBadgeFinder() {
   return find.byWidgetPredicate((widget) {
     if (widget is! IconButton) return false;
@@ -179,12 +210,7 @@ void main() {
     await tester.tap(find.text('Es Teh Manis Melati').first);
     await tester.pump(const Duration(milliseconds: 300));
 
-    if (find.textContaining('Charge').evaluate().isEmpty) {
-      await tester.tap(find.byKey(const Key('mobile-cart-bar')));
-      await pumpUntil(tester, find.textContaining('Charge'));
-    }
-    await tester.tap(find.textContaining('Charge').first);
-    await pumpUntil(tester, find.textContaining('Complete Sale'));
+    await openCheckout(tester);
     await tester.tap(find.textContaining('Complete Sale').first);
     await pumpUntil(tester, find.text('Sale complete'),
         timeout: const Duration(seconds: 30), reason: 'sale complete');

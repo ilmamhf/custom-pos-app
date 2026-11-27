@@ -1,7 +1,5 @@
 # React Admin Back-Office Application — Implementation Progress
 
-> **Historical snapshot (2026-11-21):** test counts and the branch name below predate the P2/P3 auth and UI changes. Current state: [`../../audit/2026-11-23/remediation-log.md`](../../audit/2026-11-23/remediation-log.md) and [`../../tasks/2026-11-27/README.md`](../../tasks/2026-11-27/README.md).
-
 **Date:** 2026-11-21  
 **Git Branch:** `admin-react`  
 **Application Root:** `apps/admin-react`  

@@ -400,13 +400,8 @@ and sync paths, including offline refunds with a manager authorization grant,
 closed-shift synchronization, per-record sync failure handling, and the React
 Admin user-store mapping.
 
-Remaining gaps (as of 2026-11-27) are tracked in
-[`docs/audit/2026-11-23/project-audit.md`](docs/audit/2026-11-23/project-audit.md#4-residual-findings-from-recheck)
-and [`docs/tasks/2026-11-27/README.md`](docs/tasks/2026-11-27/README.md):
-Bluetooth/ESC-POS receipt-printer hardware integration and the cash drawer,
-real payment-gateway adapters behind `IPaymentProvider` (only the generic HTTP
-provider ships), and the negative-stock policy Admin UI (the API is implemented).
-Containers, probes, Prometheus metrics, tracing, alert rules, and encrypted
-backups with a restore drill are implemented (see the sections above).
-The Prisma 7, Zod 4, and React Router 7 upgrades are done - see
+Remaining gaps are tracked in `docs/audit/2026-11-22/remediation-log.md`:
+Bluetooth receipt-printer hardware integration, a real payment-provider/settlement
+model, and the production deployment/observability work (containers, probes,
+metrics). The Prisma 7, Zod 4, and React Router 7 upgrades are done - see
 `docs/audit/2026-11-23/remediation-log.md`.

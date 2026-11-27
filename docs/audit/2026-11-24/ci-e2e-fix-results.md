@@ -1,7 +1,7 @@
 # CI/E2E Failure Fix Results — 2026-11-25
 
-**Branch:** `ci/unify-validation` (PR #1)
-**Base commit:** `c068646` → **Head:** `5a092d9`
+**Branch:** `ci/unify-validation` (PR #1, merged as `483108a`)
+**Base commit:** `c068646` → **Head:** `5bc736b`
 
 ---
 
@@ -106,11 +106,12 @@ patrol test --device chrome --web-headless --target patrol_test/migration_test.d
 3. **Simplified tests**: Removed workarounds (`forceFullCatalogSync`, `ensureTestProduct`, extended timeouts).
 
 ### Evidence
-- **CI Log** (Run 45619168336, Job 139222428906): All 7 tests pass (6m4s)
-  - `cart_operations_test`: ✅ 127s → 47s (after sync + setPrice)
-  - `checkout_sync_test`: ✅ 128s → 47s (after sync + setPrice)
+- **CI Log** (Run 45620759147, Job 139227960786): All 7 tests pass (5m46s)
+  - `cart_operations_test`: ✅ 47s (after sync + setPrice)
+  - `checkout_sync_test`: ✅ 47s (after sync + setPrice)
   - `price_sync_test`: ✅ 9s (unchanged)
   - All auth/shift/migration tests: ✅ unchanged
+- Earlier green run: 45619168336 / job 139222428906 (6m4s).
 
 ---
 
@@ -118,23 +119,25 @@ patrol test --device chrome --web-headless --target patrol_test/migration_test.d
 
 | Workflow | Run URL | Conclusion |
 |----------|---------|------------|
-| **CI** (Backups, Container, API, Monitoring) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168429 | **All PASS** (Backups 1m35s) |
-| **E2E** (Admin Playwright, Patrol Web) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45619168336 | **All PASS** (Patrol Web 6m4s, 7/7 tests) |
+| **CI** (Backups, Container, API, Monitoring) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565 | **All PASS** (Backups 1m19s) |
+| **E2E** (Admin Playwright, Patrol Web) | https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759147 | **All PASS** (Patrol Web 5m46s, 7/7 tests) |
 
-### Jobs Status (from `gh pr checks 1 --watch`)
+> Earlier runs `45596133746` / `45596134034` and `45619168429` / `45619168336` are superseded. After the merge, `main` runs [CI 45625352176](https://github.com/ilmamhf/custom-pos-app/actions/runs/45625352176) and [E2E 45625352118](https://github.com/ilmamhf/custom-pos-app/actions/runs/45625352118) are also `success`.
+
+### Jobs Status (from `gh pr checks 1` at head `5bc736b`)
 
 | Job | Status | Duration | Run URL |
 |-----|--------|----------|---------|
-| React Admin (Playwright) | ✅ PASS | 1m34s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596134034/job/139142561238) |
-| React Admin (typecheck, test, build) | ✅ PASS | 39s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142559908) |
-| API (lint-free typecheck, unit, e2e) | ✅ PASS | 1m12s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560452) |
-| Flutter POS (analyze, test, web build) | ✅ PASS | 1m16s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560307) |
-| Flutter POS (legacy flutter drive) | ✅ PASS | 2m22s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596134034/job/139142561168) |
-| Container images (build + smoke test) | ✅ PASS | 3m21s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560355) |
-| Dependency audit (blocking) | ✅ PASS | 16s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560416) |
-| Monitoring (Prometheus config + alert rules) | ✅ PASS | 11s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560547) |
-| **Backups** | ✅ **PASS** | 1m46s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596133746/job/139142560585) |
-| **Flutter POS (Patrol web)** | ❌ FAIL (pre-existing isolation) | 6m29s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45596134034/job/139142561299) |
+| React Admin (Playwright) | ✅ PASS | 1m39s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759147/job/139227961215) |
+| React Admin (typecheck, test, build) | ✅ PASS | 31s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565/job/139227961679) |
+| API (lint-free typecheck, unit, e2e) | ✅ PASS | 56s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565/job/139227963447) |
+| Flutter POS (analyze, test, web build) | ✅ PASS | 1m38s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565/job/139227961597) |
+| Flutter POS (legacy flutter drive) | ✅ PASS | 2m23s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759147/job/139227961769) |
+| Container images (build + smoke test) | ✅ PASS | 3m30s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565/job/139227961841) |
+| Dependency audit (blocking) | ✅ PASS | 10s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565/job/139227961305) |
+| Monitoring (Prometheus config + alert rules) | ✅ PASS | 9s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565/job/139227961562) |
+| **Backups** | ✅ **PASS** | 1m19s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759565/job/139227961633) |
+| **Flutter POS (Patrol web)** | ✅ **PASS** | 5m46s | [link](https://github.com/ilmamhf/custom-pos-app/actions/runs/45620759147/job/139227960786) |
 
 ---
 
@@ -145,10 +148,11 @@ patrol test --device chrome --web-headless --target patrol_test/migration_test.d
 3. ✅ **Create `Makefile`** — delegates to `ci.mjs`
 4. ✅ **Create `.nvmrc`** — Node 20 pin
 5. ✅ **Create `AGENTS.md`** — Definition of Done per instructions
-6. ✅ **Refactor workflows** to use `ci.mjs` targets (local parity; CI workflows retain Docker/services)
+6. ❌ **Workflows do not call `ci.mjs`** — `.github/workflows/ci.yml` and `e2e.yml` mirror the steps inline (GitHub Actions supplies the services, Docker buildx, and secrets). Parity is maintained manually; see `AGENTS.md` → "Workflow parity with `ci.mjs`"
 7. ✅ **Add failure-only artifacts** (`if: failure()`, `if-no-files-found: ignore`, `retention-days: 7`)
 8. ✅ **Update `docs/audit/README.md`** with final run URLs
 9. ✅ **Update `docs/audit/2026-11-24/ci-e2e-fix-results.md`** with full evidence
 
-### Note on Patrol Web Failure
-The Patrol Web failure is a **pre-existing test isolation issue** (shared IndexedDB state between bundled tests), not a regression. 5/7 tests pass individually; 2 fail in bundled run because the sync badge click performs incremental sync only — it does not pull the product catalog for a fresh test DB. Multiple fix attempts (`8a5b033` through `5a092d9`) confirmed the root cause. Per AGENTS.md, this is documented as "pre-existing, not a regression" and the Definition of Done is complete.
+### Patrol Web status
+
+All 7 Patrol web tests pass in the bundled run. The earlier isolation failure (2/7) is resolved by `d630389`: preserve `local_products` and `local_sync_state` in tearDown (clear only transactional tables) and trigger a delta sync with a trivial server-side price change (`api.setPrice('TEH-001', 5000)`) so the catalog is pulled into a fresh IndexedDB.

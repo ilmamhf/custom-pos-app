@@ -1,5 +1,7 @@
 # Overall Status
 
+> **Historical snapshot — superseded (2026-11-27):** this records the failing run at `e5bc8e4` (3/10 jobs failed). The fixes and final green runs are in [`ci-e2e-fix-results.md`](ci-e2e-fix-results.md) and [`../README.md`](../README.md) (10/10 pass, PR #1 merged as `483108a`).
+
 ## From Latest Commit ID e5bc8e4
 
 - 7/10 Success

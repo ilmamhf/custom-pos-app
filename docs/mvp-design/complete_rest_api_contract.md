@@ -1,7 +1,5 @@
 # Complete REST API Contract
 
-> **Superseded (2026-11-27):** this is the original MVP API contract. The implemented endpoints (including Payments, negative-stock policy, sync tombstones, `/auth/me`, and the cookie/CSRF refresh flow) are documented in [`../tasks/api-nestjs-endpoints.md`](../tasks/api-nestjs-endpoints.md). For what changed after this design see [`../audit/2026-11-23/remediation-log.md`](../audit/2026-11-23/remediation-log.md).
-
 ## Global Conventions
 - **Base URL:** `/api/v1`
 - **Authentication:** `Authorization: Bearer <access_token>`

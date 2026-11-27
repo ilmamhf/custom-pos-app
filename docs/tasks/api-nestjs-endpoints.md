@@ -15,7 +15,7 @@ Notation: `→` means "calls / delegates to".
 - Swagger at `/api/docs` + raw OpenAPI `/api/docs-json` (disabled in production unless `SWAGGER_ENABLED=true`).
 - Listen on `PORT` (default 3000).
 
-`app.module.ts` imports: ConfigModule (global), ThrottlerModule, PrismaModule, MetricsModule, Auth, Stores, Users, Products, Inventory, Shifts, Sales, Sync, Reports, Payments; controller: HealthController. Global guard: `ThrottlerGuard` (`APP_GUARD`); `cookie-parser` and `RequestContextMiddleware` are applied to `*`.
+`app.module.ts` imports: ConfigModule (global), PrismaModule, Auth, Stores, Users, Products, Inventory, Shifts, Sales, Sync, Reports; controller: HealthController.
 
 ---
 
@@ -105,21 +105,8 @@ Cashier access is intentionally excluded (cashiers use `GET /sync/pull`).
 - `GET /inventory/ledger` (O/M) → `getLedger(query, user)`
   - scoped paginated audit trail; filters product/reason.
 
-Negative-stock policy (engine + API; Admin UI not built):
-- `POST /inventory/negative-stock-policy` (O) → `createPolicy(dto, user)` — global or per-store thresholds.
-- `GET /inventory/negative-stock-policy` (O/M) → `getAllPolicies()`.
-- `GET /inventory/negative-stock-policy/:storeId` (O/M) → `getPolicy(storeId)`; returns/creates the global default when `storeId` is omitted.
-- `PUT /inventory/negative-stock-policy` (O) → `updatePolicy(storeId ?? null, dto, user)`.
-- `PUT /inventory/negative-stock-policy/:storeId` (O, legacy) → `updatePolicy(storeId, dto, user)`.
-- `DELETE /inventory/negative-stock-policy/:storeId` (O) → `deletePolicy(storeId)`.
-- `GET /inventory/negative-stock-events` (O/M) → `getEvents(query, user)` — paginated, filterable.
-- `GET /inventory/negative-stock-events/stats` (O/M) → `getEventStats(storeId)`.
-- `GET /inventory/negative-stock-events/unresolved` (O/M) → `getUnresolvedEvents(storeId)`.
-- `GET /inventory/negative-stock-events/:eventId` (O/M) → `getEventById(eventId)`.
-- `PUT /inventory/negative-stock-events/:eventId/resolve` (O/M) → `resolveEvent(eventId, dto, user)`.
-
 ### DTOs
-- `AdjustInventoryDto`, `TransferInventoryDto`, `QueryInventoryDto`, `QueryLedgerDto`, `CreateNegativeStockPolicyDto`, `UpdateNegativeStockPolicyDto`, `ResolveNegativeStockEventDto`, `QueryNegativeStockEventsDto`, response DTOs.
+- `AdjustInventoryDto`, `TransferInventoryDto`, `QueryInventoryDto`, `QueryLedgerDto`.
 
 ---
 
@@ -163,8 +150,7 @@ Negative-stock policy (engine + API; Admin UI not built):
 
 ### `SyncController`
 - `GET /sync/pull` (O/M/C, `StoreAccessGuard`) → `SyncService.pull(query)`
-  - `full=true` returns a full snapshot (`fullSnapshot: true`, no tombstones); otherwise uses `since` or the durable `SyncCursor` row for the store.
-  - returns changed products (effective price/stock), `tombstones[]` (`productId`, `deletedAt`), `serverTime`, and persists the cursor.
+  - store catalog rows changed since `since` (product or store-inventory updated), effective price/stock, `serverTime` cursor.
 - `POST /sync/push` (O/M/C, `StoreAccessGuard`, canonical store) → `SyncService.push(userId, dto, storeId)`
   - ensures referenced shifts exist (owned by the authenticated user; store match);
   - ingests sales in transactions: server-authoritative unit price/name, item + bounded order discount allocation, tax at store rate, proportional per-line tax, snapshot fields; validates shift existence/store/user/timing; decrements stock; ledger rows;
@@ -189,44 +175,10 @@ Negative-stock policy (engine + API; Admin UI not built):
 
 ---
 
-## Payments (`modules/payments`)
+## Health (`src/health.controller.ts`)
 
-> **Security note:** the controller has no `@UseGuards`/`@Roles` (only the global `ThrottlerGuard`), so these routes are currently unauthenticated. Recorded as an open finding in `docs/tasks/2026-11-27/README.md`; the docs pass did not change behavior.
-
-### `PaymentsController`
-Provider management:
-- `POST /payments/providers` → `createProvider(dto)`
-- `GET /payments/providers` → `getProviders()`
-- `GET /payments/providers/default` → `getDefaultProvider()`
-- `GET /payments/providers/:id` → `getProviderById(id)`
-- `PUT /payments/providers/:id` → `updateProvider(id, dto)`
-- `DELETE /payments/providers/:id` → `deleteProvider(id)` (409 when transactions exist)
-
-Transactions:
-- `POST /payments/transactions` (current user) → `createTransaction(dto, userId)`
-- `GET /payments/transactions` → filters `providerId`, `saleId`, `tenderId`, `status`, `type`, `paymentMethod`, `page`, `limit`
-- `GET /payments/transactions/:id`
-- `POST /payments/transactions/:id/authorize`
-- `POST /payments/transactions/:id/capture`
-- `POST /payments/transactions/:id/void`
-- `POST /payments/transactions/:id/refund` (idempotency key)
-- `POST /payments/webhook/:providerId` → `handleWebhook(providerId, payload, signature)` (HMAC signature)
-
-### `PaymentsService`
-- Provider CRUD, default selection, and `getProviderForMethod`.
-- Transaction lifecycle: `createTransaction`, `authorizePayment`, `capturePayment`, `voidPayment`, `refundPayment`, `handleWebhook`.
-- `GenericPaymentProvider` (HTTP, config-driven) behind `IPaymentProvider`; every provider type resolves to it today.
-
-### DTOs
-- `CreatePaymentProviderDto`, `UpdatePaymentProviderDto`, `CreatePaymentTransactionDto`, `CapturePaymentDto`, `VoidPaymentDto`, `RefundPaymentDto`, response DTOs.
-
----
-
-## Health & metrics
-
-- `GET /health` (`src/health.controller.ts`) — liveness `{status:'ok'}`.
+- `GET /health` — liveness `{status:'ok'}`.
 - `GET /health/ready` — `SELECT 1`; 503 when the DB is unreachable.
-- `GET /metrics` (`src/common/metrics/metrics.controller.ts`) — Prometheus registry, outside the `/api/v1` prefix.
 
 ---
 
@@ -268,16 +220,9 @@ Transactions:
 - `Shift` — id, store, user, openedAt/closedAt, openingCash/expectedCash/actualCash.
 - `Sale` — id, store, shift, cashier, receiptNo (unique), subtotal/taxTotal/discountTotal/grandTotal, taxRateBps, paymentMethod, status, createdAt.
 - `SaleItem` — sale, product, name snapshot, unitPrice, qty, refundedQty, gross/discount/tax/lineTotal/refundedAmount.
-- `PaymentProvider` — name, type, config (JSON), supportedMethods[], isActive, isDefault.
-- `PaymentTransaction` — provider, optional sale/tender, type, status, paymentMethod, amount, currency, externalId, reference, payloads, errorMessage, idempotencyKey, settledAt.
-- `SaleTender` — sale, paymentMethod, amount, change, reference, optional paymentTransactionId.
 - `Refund` — id, sale, store, creator, amount, reason, unique idempotencyKey, createdAt.
-- `NegativeStockPolicy` — optional store (global when null), alert/autoTransfer/approval/writeOff thresholds, isActive.
-- `NegativeStockEvent` — store, product, currentStock, actionTaken, detail, resolvedBy/resolvedAt.
-- `SyncCursor` — store (unique), cursor (ISO timestamp).
-- `ProductTombstone` — `(storeId, productId)` unique, deletedAt.
 
-Migrations: `20261123000000_init`, `20261123134532_add_sale_tender`, `20261124090000_add_payment_provider`, `20261124091000_add_negative_stock_policy`, `20261124092000_add_sync_tombstones_cursor`.
+Migrations: `prisma/migrations/20261123000000_init`.
 
 ---
 

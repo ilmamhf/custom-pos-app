@@ -1,7 +1,5 @@
 # NestJS Backend & Offline Sync Engine — Implementation Progress
 
-> **Historical snapshot (2026-11-21):** model counts, test counts, and the branch name below predate P1–P3 remediation. Current state: [`../../audit/2026-11-23/remediation-log.md`](../../audit/2026-11-23/remediation-log.md) and [`../../tasks/2026-11-27/README.md`](../../tasks/2026-11-27/README.md).
-
 **Date:** 2026-11-21  
 **Git Branch:** `be-nestjs`  
 **Application Root:** `apps/api-nestjs`  

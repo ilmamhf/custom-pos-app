@@ -7,8 +7,6 @@
 - **Scope:** NestJS API, Flutter POS, React Admin, cross-application contracts, data model, tests, security, operational readiness
 - **Excluded:** UI/UX and visual-design assessment
 
-> **Status note (2026-11-27):** this document is the post-remediation baseline. P1/P2/P3 were completed on 2026-11-24 (see [`remediation-log.md`](remediation-log.md)), and CI/E2E was unified and merged on 2026-11-25 (PR #1, `483108a`). For current status use [`../2026-11-24/ci-e2e-fix-results.md`](../2026-11-24/ci-e2e-fix-results.md) and [`../../tasks/2026-11-27/README.md`](../../tasks/2026-11-27/README.md).
-
 ---
 
 ## 1. Executive summary
@@ -271,14 +269,14 @@ React Admin
 | 5 | **R-02**: Enforce IDR ceiling (e.g., 999,999,999) or decimal strings end-to-end | No precision loss at scale |
 | 6 | **R-06**: `@nestjs/throttler` global + strict `/auth/*` limits + lockout telemetry + alerts | Production auth hardening |
 
-### P2: Security & token hygiene (1 week) — ✅ complete 2026-11-24
+### P2: Security & token hygiene (1 week)
 
 | # | Work | Unlocks |
 |---|------|---------|
 | 7 | **M-02**: Refresh token → HttpOnly Secure SameSite cookie + CSRF (double-submit) | Tokens not accessible to XSS |
 | 8 | **D-01/D-02**: Tested major upgrades (Prisma 7 → Zod 4 → React Router 7) + remove `continue-on-error` | Clean dependency bill of health |
 
-### P3: Operations & observability (2–3 weeks) — ✅ complete 2026-11-24
+### P3: Operations & observability (2–3 weeks)
 
 | # | Work | Unlocks |
 |---|------|---------|
@@ -312,7 +310,7 @@ React Admin
 
 The codebase has **graduated from "local MVP" to "single-store pilot ready"**. The P0 trust-boundary defects (store isolation, sync authority, refund correctness, session isolation) are fixed and verified. The remaining gaps are **operational and financial hardening** — not architectural flaws.
 
-**Recommended next step (2026-11-27):** P1–P3 are complete. The remaining work is P4 hardware (Bluetooth/ESC-POS printer + cash drawer), real payment-gateway adapters behind `IPaymentProvider`, the negative-stock policy Admin UI (API is implemented), and the open test gaps in §7. See [`../../tasks/2026-11-27/README.md`](../../tasks/2026-11-27/README.md).
+**Recommended next step:** Execute P1 sprint (financial/sync correctness) to unblock multi-store production. The work is well-scoped, the test baseline is solid, and the contracts are now stable enough to build on.
 
 ---
 

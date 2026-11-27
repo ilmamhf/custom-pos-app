@@ -1,7 +1,5 @@
 # Database Design & PostgreSQL Schema
 
-> **Superseded (2026-11-27):** this is the original MVP design document. The implemented schema lives in [`apps/api-nestjs/prisma/schema.prisma`](../../apps/api-nestjs/prisma/schema.prisma) (17 models, 5 migrations). For the current model list and endpoints see [`../tasks/api-nestjs-endpoints.md`](../tasks/api-nestjs-endpoints.md); for what changed after this design see [`../audit/2026-11-23/remediation-log.md`](../audit/2026-11-23/remediation-log.md).
-
 ## 1. Entity Relationship Diagram
 
 ```text

@@ -123,7 +123,31 @@ Doc checks:
 
 ---
 
-## 6. Open findings (not fixed — outside a docs-only pass)
+## 6. Delivery evidence
+
+- Commit: `6db76ef` — `docs: sync status/audit docs and record 2026-11-27 tasks` (15 files, +339/−63)
+- Branch: `docs/sync-audit-2026-11-27` (based on `483108a`)
+- PR: [#2](https://github.com/ilmamhf/custom-pos-app/pull/2) — `MERGEABLE`, open
+- `gh pr checks 2` → **10/10 pass**, run `46026164152` (CI) and `46026164191` (E2E)
+
+```text
+Backups (encrypted backup + restore drill)      pass  1m39s
+Container images (build + smoke test)           pass  3m22s
+API (lint-free typecheck, unit, e2e)            pass    59s
+Flutter POS (analyze, test, web build)          pass  1m38s
+Flutter POS (Patrol web)                        pass  5m18s
+Flutter POS (legacy flutter drive)              pass  2m21s
+React Admin (Playwright)                        pass  1m20s
+React Admin (typecheck, test, build)            pass    38s
+Dependency audit (blocking)                     pass     9s
+Monitoring (Prometheus config + alert rules)    pass    13s
+```
+
+The PR was not merged as part of this pass.
+
+---
+
+## 7. Open findings (not fixed — outside a docs-only pass)
 
 These were discovered during the audit and are recorded here so they are not lost. None were changed by this pass.
 
@@ -137,7 +161,7 @@ These were discovered during the audit and are recorded here so they are not los
 
 ---
 
-## 7. Related
+## 8. Related
 
 - [`../../../README.md`](../../../README.md) — setup and operations
 - [`../../README.md`](../../README.md) — documentation index
